@@ -253,7 +253,7 @@ def generer_rapport(conn) -> None:
 # Hovedprogram
 # ---------------------------------------------------------------------------
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Hent synonymer fra ordbokapi.org")
+    parser = argparse.ArgumentParser(description="Hent synonymer fra ordbokapi.org og Wikidata")
     parser.add_argument("--start", type=int, default=1,
                         help="Start-artikkel-ID (standard: 1)")
     parser.add_argument("--end", type=int, default=MAX_ARTICLE_ID,
