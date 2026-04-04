@@ -48,6 +48,9 @@ Thumbs.db
 *.swp
 *.swo
 
+# Logs
+scripts/logs/*.log
+
 # Database
 *.sqlite
 *.db
