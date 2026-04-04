@@ -6,7 +6,14 @@ Kategorier:
   - Norske kommuner og byer
   - Norske fjell
   - Norske kunstnere og musikere
-  - Europeiske land (norske navn)
+  - Europeiske land
+  - Verdens land
+  - Verdens byer
+  - Norske fornavn
+  - Norske etternavn
+
+For personnavn lagres fornavn og etternavn som separate oppslag
+slik at hvert ord kan brukes som kryssordsvar.
 
 Bruk:
     python scripts/hent_wikidata.py
@@ -29,16 +36,16 @@ from SPARQLWrapper import SPARQLWrapper, JSON
 # ---------------------------------------------------------------------------
 # Konfigurasjon
 # ---------------------------------------------------------------------------
-ROOT     = Path(__file__).parent.parent
-LOG_DIR  = Path(__file__).parent / "logs"
+ROOT    = Path(__file__).parent.parent
+LOG_DIR = Path(__file__).parent / "logs"
 LOG_DIR.mkdir(exist_ok=True)
 
 SPARQL_ENDPOINT = "https://query.wikidata.org/sparql"
 USER_AGENT      = "KryssordNorge/1.0 (hobby-prosjekt; python SPARQLWrapper)"
 
 MIN_LEN = 2
-MAX_LEN = 25   # Egennavn kan være lengre enn vanlige ord
-REQUEST_DELAY = 2.0   # Wikidata ber om minst 1s mellom kall
+MAX_LEN = 25
+REQUEST_DELAY = 2.5  # Wikidata ber om minst 1s mellom kall
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -55,19 +62,19 @@ log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # SPARQL-spørringer
+#
+# split_names=True:  flerleddsnavn brytes opp til enkeltord (fornavn/etternavn)
+# split_names=False: kun enkeltord beholdes (steder, land osv.)
 # ---------------------------------------------------------------------------
-# Felles prefikser og label-service brukes i alle spørringer.
-# Resultater returneres som ?navn (norsk bokmålsnavn).
-# Ekstra felt (parti, høyde osv.) hentes der tilgjengelig.
-
 QUERIES: list[dict] = [
     {
         "kategori":    "Norske politikere",
         "beskrivelse": "Norske politikere hentet fra Wikidata",
+        "split_names": True,
         "sparql": """
 SELECT DISTINCT ?navn WHERE {
-  ?item wdt:P27  wd:Q20 ;       # statsborgerskap: Norge
-        wdt:P106 wd:Q82955 .    # yrke: politiker
+  ?item wdt:P27  wd:Q20 ;
+        wdt:P106 wd:Q82955 .
   ?item rdfs:label ?navn .
   FILTER(LANG(?navn) = "nb")
   FILTER(STRLEN(?navn) >= 2)
@@ -78,15 +85,16 @@ LIMIT 5000
     {
         "kategori":    "Norske kommuner og byer",
         "beskrivelse": "Norske kommuner og byer hentet fra Wikidata",
+        "split_names": False,
         "sparql": """
 SELECT DISTINCT ?navn WHERE {
   {
-    ?item wdt:P31 wd:Q755707 .    # norsk kommune
+    ?item wdt:P31 wd:Q755707 .
   } UNION {
-    ?item wdt:P31 wd:Q1115575 .   # norsk by
+    ?item wdt:P31 wd:Q1115575 .
   } UNION {
     ?item wdt:P17 wd:Q20 ;
-          wdt:P31 wd:Q515 .       # by i Norge
+          wdt:P31 wd:Q515 .
   }
   ?item rdfs:label ?navn .
   FILTER(LANG(?navn) = "nb")
@@ -98,31 +106,33 @@ LIMIT 2000
     {
         "kategori":    "Norske fjell",
         "beskrivelse": "Norske fjell hentet fra Wikidata",
+        "split_names": False,
         "sparql": """
 SELECT DISTINCT ?navn WHERE {
-  ?item wdt:P17 wd:Q20 ;          # land: Norge
-        wdt:P31 wd:Q8502 .        # instanstype: fjell
+  ?item wdt:P17 wd:Q20 ;
+        wdt:P31 wd:Q8502 .
   ?item rdfs:label ?navn .
   FILTER(LANG(?navn) = "nb")
   FILTER(STRLEN(?navn) >= 2)
 }
-LIMIT 3000
+LIMIT 5000
         """,
     },
     {
         "kategori":    "Norske kunstnere og musikere",
         "beskrivelse": "Norske kunstnere og musikere hentet fra Wikidata",
+        "split_names": True,
         "sparql": """
 SELECT DISTINCT ?navn WHERE {
-  ?item wdt:P27 wd:Q20 .           # statsborgerskap: Norge
+  ?item wdt:P27 wd:Q20 .
   {
-    ?item wdt:P106 wd:Q483501 .    # yrke: kunstner
+    ?item wdt:P106 wd:Q483501 .
   } UNION {
-    ?item wdt:P106 wd:Q639669 .    # yrke: musiker
+    ?item wdt:P106 wd:Q639669 .
   } UNION {
-    ?item wdt:P106 wd:Q177220 .    # yrke: sanger
+    ?item wdt:P106 wd:Q177220 .
   } UNION {
-    ?item wdt:P106 wd:Q1028181 .   # yrke: maler
+    ?item wdt:P106 wd:Q1028181 .
   }
   ?item rdfs:label ?navn .
   FILTER(LANG(?navn) = "nb")
@@ -134,15 +144,88 @@ LIMIT 5000
     {
         "kategori":    "Europeiske land",
         "beskrivelse": "Europeiske land på norsk hentet fra Wikidata",
+        "split_names": False,
         "sparql": """
 SELECT DISTINCT ?navn WHERE {
-  ?item wdt:P30 wd:Q46 ;           # kontinent: Europa
-        wdt:P31 wd:Q6256 .         # instanstype: land
+  ?item wdt:P30 wd:Q46 ;
+        wdt:P31 wd:Q6256 .
   ?item rdfs:label ?navn .
   FILTER(LANG(?navn) = "nb")
   FILTER(STRLEN(?navn) >= 2)
 }
 LIMIT 200
+        """,
+    },
+    {
+        "kategori":    "Verdens land",
+        "beskrivelse": "Alle suverene land i verden på norsk hentet fra Wikidata",
+        "split_names": False,
+        "sparql": """
+SELECT DISTINCT ?navn WHERE {
+  ?item wdt:P31 wd:Q3624078 .   # suverent land
+  ?item rdfs:label ?navn .
+  FILTER(LANG(?navn) = "nb")
+  FILTER(STRLEN(?navn) >= 2)
+}
+LIMIT 500
+        """,
+    },
+    {
+        "kategori":    "Verdens byer",
+        "beskrivelse": "Store byer i verden på norsk hentet fra Wikidata",
+        "split_names": False,
+        "sparql": """
+SELECT DISTINCT ?navn WHERE {
+  ?item wdt:P31 wd:Q515 .        # by
+  ?item wdt:P1082 ?pop .         # innbyggertall
+  FILTER(?pop > 500000)
+  ?item rdfs:label ?navn .
+  FILTER(LANG(?navn) = "nb")
+  FILTER(STRLEN(?navn) >= 2)
+}
+LIMIT 2000
+        """,
+    },
+    {
+        "kategori":    "Norske fornavn",
+        "beskrivelse": "Norske fornavn hentet fra Wikidata",
+        "split_names": False,
+        "sparql": """
+SELECT DISTINCT ?navn WHERE {
+  ?item wdt:P31 wd:Q202444 .     # mannlig fornavn
+  ?item rdfs:label ?navn .
+  FILTER(LANG(?navn) = "nb")
+  FILTER(STRLEN(?navn) >= 2)
+}
+LIMIT 3000
+        """,
+    },
+    {
+        "kategori":    "Norske fornavn",
+        "beskrivelse": "Norske fornavn hentet fra Wikidata",
+        "split_names": False,
+        "sparql": """
+SELECT DISTINCT ?navn WHERE {
+  ?item wdt:P31 wd:Q11879590 .   # kvinnelig fornavn
+  ?item rdfs:label ?navn .
+  FILTER(LANG(?navn) = "nb")
+  FILTER(STRLEN(?navn) >= 2)
+}
+LIMIT 3000
+        """,
+    },
+    {
+        "kategori":    "Norske etternavn",
+        "beskrivelse": "Norske etternavn hentet fra Wikidata",
+        "split_names": False,
+        "sparql": """
+SELECT DISTINCT ?navn WHERE {
+  ?item wdt:P31 wd:Q101352 .     # etternavn
+  ?item rdfs:label ?navn .
+  FILTER(LANG(?navn) = "nb")
+  FILTER(STRLEN(?navn) >= 2)
+}
+LIMIT 5000
         """,
     },
 ]
@@ -155,7 +238,6 @@ def get_db(database_url: str):
 
 
 def upsert_ord(cur, tekst: str) -> str:
-    """Setter inn ord og returnerer UUID-en (eksisterende eller ny)."""
     cur.execute("""
         INSERT INTO ord (tekst, ordklasse)
         VALUES (%s, 'egennavn')
@@ -166,7 +248,6 @@ def upsert_ord(cur, tekst: str) -> str:
 
 
 def upsert_kategori(cur, navn: str, beskrivelse: str) -> str:
-    """Setter inn kategori og returnerer UUID-en."""
     cur.execute("""
         INSERT INTO kategorier (navn, beskrivelse)
         VALUES (%s, %s)
@@ -185,64 +266,91 @@ def link_ord_kategori(cur, ord_id: str, kategori_id: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Parsing av navn
+# ---------------------------------------------------------------------------
+def parse_names(raw_navn: str, split_names: bool) -> list[str]:
+    """
+    Gjør om et råtnavn fra Wikidata til lagringsklar(e) tekst(er).
+
+    - split_names=False: kun enkeltord beholdes (steder, land)
+    - split_names=True:  hvert mellomromseparert ledd lagres separat
+      slik at "Jonas Gahr Støre" gir ["jonas", "gahr", "støre"]
+    """
+    navn = raw_navn.strip()
+    if not navn:
+        return []
+
+    if " " not in navn:
+        tekst = navn.lower()
+        if _valid(tekst):
+            return [tekst]
+        return []
+
+    if not split_names:
+        return []
+
+    # Split på mellomrom — behold hvert ledd som er gyldig
+    results = []
+    for ledd in navn.split():
+        tekst = ledd.lower().strip(".,-()")
+        if _valid(tekst):
+            results.append(tekst)
+    return results
+
+
+def _valid(tekst: str) -> bool:
+    return (
+        MIN_LEN <= len(tekst) <= MAX_LEN
+        and all(c.isalpha() or c in "-'" for c in tekst)
+    )
+
+
+# ---------------------------------------------------------------------------
 # SPARQL-kall
 # ---------------------------------------------------------------------------
 def run_sparql(sparql: SPARQLWrapper, query: str) -> list[str]:
-    """
-    Kjører SPARQL-spørring og returnerer liste av norske navn.
-    Filtrerer ut flerleddsnavn for kryssordbruk (beholder enkeltord).
-    Beholder navn med bindestrek (f.eks. Aust-Agder).
-    """
     sparql.setQuery(query)
     sparql.setReturnFormat(JSON)
-
     try:
         results = sparql.query().convert()
     except Exception as exc:
         log.error("SPARQL-feil: %s", exc)
         return []
-
-    names = []
-    for row in results.get("results", {}).get("bindings", []):
-        navn = row.get("navn", {}).get("value", "").strip()
-        if not navn:
-            continue
-
-        # Kun enkeltord eller ord med bindestrek (kryssordvennlig)
-        if " " in navn:
-            # Behold enkeltleddet hvis det er informativt nok
-            # F.eks. "Jan Egeland" → hopp over; "Aust-Agder" → behold
-            continue
-
-        tekst = navn.lower()
-        if not (MIN_LEN <= len(tekst) <= MAX_LEN):
-            continue
-        if not all(c.isalpha() or c in "-'" for c in tekst):
-            continue
-
-        names.append(tekst)
-
-    return names
+    return [
+        row["navn"]["value"]
+        for row in results.get("results", {}).get("bindings", [])
+        if row.get("navn", {}).get("value")
+    ]
 
 
 # ---------------------------------------------------------------------------
 # Prosessering per kategori
 # ---------------------------------------------------------------------------
 def process_category(conn, sparql: SPARQLWrapper, query_def: dict) -> int:
-    kategori_navn = query_def["kategori"]
-    log.info("--- Henter: %s ---", kategori_navn)
+    kategori_navn  = query_def["kategori"]
+    split_names    = query_def.get("split_names", False)
 
-    names = run_sparql(sparql, query_def["sparql"])
-    log.info("  Mottok %d enkeltord fra Wikidata", len(names))
+    log.info("--- Henter: %s (split=%s) ---", kategori_navn, split_names)
 
-    if not names:
+    raw_names = run_sparql(sparql, query_def["sparql"])
+    log.info("  Rådata fra Wikidata: %d treff", len(raw_names))
+
+    words: list[str] = []
+    for raw in raw_names:
+        words.extend(parse_names(raw, split_names))
+
+    # Dedupliser (innen denne batchen)
+    words = list(dict.fromkeys(words))
+    log.info("  Unike kryssordvennlige ord: %d", len(words))
+
+    if not words:
         return 0
 
     inserted = 0
     with conn.cursor() as cur:
         kategori_id = upsert_kategori(cur, kategori_navn, query_def["beskrivelse"])
 
-        for tekst in names:
+        for tekst in words:
             try:
                 ord_id = upsert_ord(cur, tekst)
                 link_ord_kategori(cur, ord_id, kategori_id)
@@ -250,12 +358,12 @@ def process_category(conn, sparql: SPARQLWrapper, query_def: dict) -> int:
             except Exception as exc:
                 log.warning("Feil for '%s': %s", tekst, exc)
                 conn.rollback()
-                # Hent kategori-id på nytt etter rollback
-                cur.execute("SELECT id FROM kategorier WHERE navn = %s", (kategori_navn,))
+                cur.execute(
+                    "SELECT id FROM kategorier WHERE navn = %s", (kategori_navn,)
+                )
                 row = cur.fetchone()
                 if row:
                     kategori_id = row[0]
-                continue
 
     conn.commit()
     log.info("  → %d ord lagret i '%s'", inserted, kategori_navn)
@@ -275,7 +383,6 @@ def main() -> None:
         sys.exit(1)
 
     conn = get_db(database_url)
-
     sparql = SPARQLWrapper(SPARQL_ENDPOINT)
     sparql.addCustomHttpHeader("User-Agent", USER_AGENT)
 
@@ -284,7 +391,7 @@ def main() -> None:
         count = process_category(conn, sparql, query_def)
         total += count
         if i < len(QUERIES) - 1:
-            log.info("Venter %ss før neste spørring ...", REQUEST_DELAY)
+            log.info("Venter %ss ...", REQUEST_DELAY)
             time.sleep(REQUEST_DELAY)
 
     conn.close()
