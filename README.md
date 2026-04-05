@@ -101,20 +101,32 @@ railway link           # Kobler til eksisterende prosjekt
 Workflows kan også kjøres manuelt fra GitHub UI:
 **Actions → velg workflow → Run workflow**
 
-## Datahenting (scripts)
+## Bygg orddatabasen
+
+Det enkleste er å kjøre orkestreringssskriptet som tar seg av alt i riktig rekkefølge:
 
 ```bash
 source backend/.venv/bin/activate
+bash scripts/bygg_ordbank.sh
+```
 
-# Hent ord fra Bokmålsordboka (~70 000 artikler, ~15 min)
-python scripts/hent_ordbokene.py
+Scriptet validerer miljøet, kjører alle steg og skriver en rapport til slutt.
+Estimert kjøretid: **~30–45 minutter** (Ordbøkene er det tyngste steget).
 
-# Hent egennavn fra Wikidata
-python scripts/hent_wikidata.py
+### Alternativer
 
-# Hent synonympar
-python scripts/hent_synonymer.py
+```bash
+# Valider miljø og se hva som ville kjørt, uten å gjøre endringer
+bash scripts/bygg_ordbank.sh --dry-run
 
-# Generer kryssord lokalt
+# Hopp over Ordbøkene-steget (hvis ord allerede er hentet)
+bash scripts/bygg_ordbank.sh --skip-ordbokene
+
+# Kjør enkeltskript manuelt
+python scripts/hent_ordbokene.py          # Bokmålsord (~15 min)
+python scripts/hent_wikidata.py           # Egennavn fra Wikidata
+python scripts/hent_synonymer.py          # Synonympar
 python scripts/generer_kryssord.py --storrelse 9 13 17
 ```
+
+Byggelogger lagres i `scripts/logs/bygg_ordbank_<timestamp>.log`.
