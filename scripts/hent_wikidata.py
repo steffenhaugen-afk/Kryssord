@@ -44,7 +44,7 @@ SPARQL_ENDPOINT = "https://query.wikidata.org/sparql"
 USER_AGENT      = "KryssordNorge/1.0 (hobby-prosjekt; python SPARQLWrapper)"
 
 MIN_LEN = 2
-MAX_LEN = 25
+MAX_LEN = 15   # Bokstavlengde ekskl. bindestrek/mellomrom
 REQUEST_DELAY = 2.5  # Wikidata ber om minst 1s mellom kall
 
 # ---------------------------------------------------------------------------
@@ -238,12 +238,17 @@ def get_db(database_url: str):
 
 
 def upsert_ord(cur, tekst: str) -> str:
+    har_bindestrek = "-" in tekst
+    har_mellomrom  = " " in tekst
     cur.execute("""
-        INSERT INTO ord (tekst, ordklasse)
-        VALUES (%s, 'egennavn')
-        ON CONFLICT (tekst) DO UPDATE SET ordklasse = EXCLUDED.ordklasse
+        INSERT INTO ord (tekst, ordklasse, har_bindestrek, har_mellomrom)
+        VALUES (%s, 'egennavn', %s, %s)
+        ON CONFLICT (tekst) DO UPDATE
+          SET ordklasse      = EXCLUDED.ordklasse,
+              har_bindestrek = EXCLUDED.har_bindestrek,
+              har_mellomrom  = EXCLUDED.har_mellomrom
         RETURNING id
-    """, (tekst,))
+    """, (tekst, har_bindestrek, har_mellomrom))
     return cur.fetchone()[0]
 
 
@@ -272,36 +277,65 @@ def parse_names(raw_navn: str, split_names: bool) -> list[str]:
     """
     Gjør om et råtnavn fra Wikidata til lagringsklar(e) tekst(er).
 
-    - split_names=False: kun enkeltord beholdes (steder, land)
-    - split_names=True:  hvert mellomromseparert ledd lagres separat
-      slik at "Jonas Gahr Støre" gir ["jonas", "gahr", "støre"]
+    split_names=False (steder, land):
+      - Enkeltord lagres direkte
+      - Flerleddsnavn MED mellomrom lagres som ett ord (har_mellomrom=true)
+        dersom bokstavlengden er innenfor grensene, f.eks. "hong kong"
+      - Navn med bindestrek lagres som ett ord (har_bindestrek=true)
+
+    split_names=True (personnavn):
+      - Hvert mellomromseparert ledd lagres separat
+        "Jonas Gahr Støre" → ["jonas", "gahr", "støre"]
     """
     navn = raw_navn.strip()
     if not navn:
         return []
 
+    tekst_lower = navn.lower()
+
     if " " not in navn:
-        tekst = navn.lower()
-        if _valid(tekst):
-            return [tekst]
+        # Enkeltord (kan ha bindestrek, f.eks. "sør-korea")
+        if _valid(tekst_lower):
+            return [tekst_lower]
         return []
 
-    if not split_names:
-        return []
+    if split_names:
+        # Personnavn: split på mellomrom
+        results = []
+        for ledd in navn.split():
+            tekst = ledd.lower().strip(".,-()")
+            if _valid(tekst):
+                results.append(tekst)
+        return results
 
-    # Split på mellomrom — behold hvert ledd som er gyldig
-    results = []
-    for ledd in navn.split():
-        tekst = ledd.lower().strip(".,-()")
-        if _valid(tekst):
-            results.append(tekst)
-    return results
+    # split_names=False og mellomrom: lagre som sammensatt navn
+    # Fjern tegnsetting, behold mellomrom
+    tekst_norm = " ".join(
+        ledd.lower().strip(".,-()")
+        for ledd in navn.split()
+    )
+    if _valid_sammensatt(tekst_norm):
+        return [tekst_norm]
+    return []
 
 
 def _valid(tekst: str) -> bool:
+    """Enkel validering for ord uten mellomrom."""
+    bokstavlengde = len(tekst.replace("-", "").replace(" ", ""))
     return (
-        MIN_LEN <= len(tekst) <= MAX_LEN
-        and all(c.isalpha() or c in "-'" for c in tekst)
+        MIN_LEN <= bokstavlengde <= MAX_LEN
+        and all(c.isalpha() or c in "- " for c in tekst)
+    )
+
+
+def _valid_sammensatt(tekst: str) -> bool:
+    """Validering for sammensatte ord med mellomrom."""
+    bokstavlengde = len(tekst.replace(" ", "").replace("-", ""))
+    return (
+        MIN_LEN <= bokstavlengde <= MAX_LEN
+        and all(c.isalpha() or c in "- " for c in tekst)
+        and not tekst.startswith(" ")
+        and not tekst.endswith(" ")
     )
 
 
