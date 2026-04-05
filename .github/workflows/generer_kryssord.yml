@@ -1,0 +1,52 @@
+name: Generer ukentlige kryssord
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"   # Hver mandag kl. 06:00 UTC
+  workflow_dispatch:        # Tillat manuell kjøring fra GitHub UI
+
+jobs:
+  generer:
+    name: Generer og publiser kryssord
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Hent kode
+        uses: actions/checkout@v4
+
+      - name: Sett opp Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: scripts/requirements.txt
+
+      - name: Installer avhengigheter
+        run: pip install -r scripts/requirements.txt
+
+      - name: Generer kryssord (9x9, 13x13, 17x17)
+        env:
+          DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+        run: python scripts/generer_kryssord.py --storrelse 9 13 17
+
+      - name: Verifiser publiserte kryssord
+        env:
+          DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+        run: |
+          python - <<'EOF'
+          import os, psycopg2
+          conn = psycopg2.connect(os.environ["DATABASE_URL"])
+          with conn.cursor() as cur:
+              cur.execute("""
+                  SELECT grid_storrelse, tittel, opprettet_dato
+                  FROM kryssord
+                  WHERE publisert = true
+                  ORDER BY opprettet_dato DESC
+                  LIMIT 6
+              """)
+              rows = cur.fetchall()
+          conn.close()
+          print(f"Siste {len(rows)} publiserte kryssord:")
+          for r in rows:
+              print(f"  {r[0]}x{r[0]}  |  {r[1]}  |  {r[2]}")
+          EOF
