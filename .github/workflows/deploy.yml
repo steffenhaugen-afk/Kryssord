@@ -65,12 +65,18 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements.txt
 
-      - name: Installer avhengigheter og kjør tester
+      - name: Installer avhengigheter
         working-directory: backend
         run: |
           pip install -r requirements.txt
-          pip install pytest httpx
-          pytest tests/ -q --tb=short 2>/dev/null || echo "Ingen tester funnet – hopper over"
+          pip install pytest
+
+      - name: Kjør tester
+        working-directory: backend
+        env:
+          DATABASE_URL: "postgresql://test:test@localhost:5432/test_db"
+          ADMIN_API_KEY: "test-admin-key"
+        run: pytest tests/ -q --tb=short
 
       - name: Installer Railway CLI
         run: npm install -g @railway/cli

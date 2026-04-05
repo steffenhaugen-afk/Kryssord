@@ -10,12 +10,13 @@ export interface GridJson {
 
 export interface LedetradOppslag {
   nr: number;
+  tekst: string;
+  ledetrad: string;
+  // Felter satt av generatoren og ledetrad_generator
   kol: number;
   rad: number;
-  tekst: string;
   lengde: number;
-  ledetrad: string;
-  kilde: string;
+  kilde?: string;
 }
 
 export interface LedetradJson {
