@@ -1,8 +1,4 @@
-import json
-import subprocess
-import sys
 from datetime import date, datetime, timezone
-from pathlib import Path
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
@@ -124,56 +120,39 @@ def hent_kryssord(
 
 @router.post("/generer", response_model=GenererRespons, summary="Generer nytt kryssord (admin)")
 def generer_kryssord(
-    body:    GenererRequest,
+    body:        GenererRequest,
     x_admin_key: str | None = Header(None, alias="X-Admin-Key"),
-    db:      Session        = Depends(get_db),
+    db:          Session    = Depends(get_db),
 ) -> GenererRespons:
     if x_admin_key != settings.admin_api_key:
         raise HTTPException(status_code=403, detail="Ugyldig eller manglende X-Admin-Key")
 
-    scripts_dir = Path(__file__).parent.parent.parent.parent / "scripts"
-    script      = scripts_dir / "generer_kryssord.py"
+    from ...generator import generer_og_lagre
 
-    if not script.exists():
-        raise HTTPException(status_code=500, detail="Generatorskript ikke funnet")
-
-    args = [sys.executable, str(script), "--storrelse", str(body.storrelse)]
-    result = subprocess.run(args, capture_output=True, text=True, timeout=120)
-
-    if result.returncode != 0:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Generering feilet: {result.stderr[:500]}",
+    try:
+        info = generer_og_lagre(
+            database_url=settings.database_url,
+            storrelse=body.storrelse,
+            vanskelighetsgrad=_vanskelighetsgrad(body.storrelse),
+            publiser=body.publiser,
+            tittel=body.tittel,
+            maks_tid=20.0,
         )
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
-    # Hent det sist opprettede kryssordet med riktig størrelse
-    k = db.scalar(
-        select(Kryssord)
-        .where(Kryssord.grid_storrelse == body.storrelse)
-        .order_by(Kryssord.opprettet_dato.desc())
-        .limit(1)
-    )
+    k = db.get(Kryssord, info["id"])
     if k is None:
-        raise HTTPException(status_code=500, detail="Klarte ikke finne generert kryssord")
-
-    if body.tittel:
-        k.tittel = body.tittel
-    if body.publiser:
-        k.publisert = True
-    db.commit()
-    db.refresh(k)
-
-    grid = k.grid_json or {}
-    antall_ord = len(
-        k.ledetrad_json.get("across", {}) if isinstance(k.ledetrad_json, dict) else []
-    ) + len(
-        k.ledetrad_json.get("down", {}) if isinstance(k.ledetrad_json, dict) else []
-    )
+        raise HTTPException(status_code=500, detail="Kryssord ikke funnet etter generering")
 
     return GenererRespons(
         id=k.id,
         tittel=k.tittel,
         grid_storrelse=k.grid_storrelse,
-        antall_ord=antall_ord,
+        antall_ord=info["antall_ord"],
         publisert=k.publisert,
     )
+
+
+def _vanskelighetsgrad(storrelse: int) -> str:
+    return {9: "lett", 13: "middels", 17: "vanskelig"}.get(storrelse, "middels")
