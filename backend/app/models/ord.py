@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Computed, ForeignKey, Numeric, String, Text, func
+from sqlalchemy import Boolean, Column, Computed, ForeignKey, Numeric, Text, func
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import relationship
 
@@ -8,12 +8,15 @@ from .base import Base
 class Ord(Base):
     __tablename__ = "ord"
 
-    id            = Column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
-    tekst         = Column(Text, nullable=False, unique=True)
-    ordklasse     = Column(Text)
-    bokstavlengde = Column(Computed("length(tekst)", persisted=True))
-    frekvens      = Column(Numeric(10, 6), default=0.0)
+    id             = Column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
+    tekst          = Column(Text, nullable=False, unique=True)
+    ordklasse      = Column(Text)
+    bokstavlengde  = Column(Computed("length(regexp_replace(tekst, '[- ]', '', 'g'))", persisted=True))
+    frekvens       = Column(Numeric(10, 6), default=0.0)
     opprettet_dato = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    har_bindestrek = Column(Boolean, nullable=False, server_default="false")
+    har_mellomrom  = Column(Boolean, nullable=False, server_default="false")
+    kort_ord       = Column(Boolean, nullable=False, server_default="false")
 
     synonymer_som_ord     = relationship("Synonym", foreign_keys="Synonym.ord_id",     back_populates="ord",     lazy="select")
     synonymer_som_synonym = relationship("Synonym", foreign_keys="Synonym.synonym_id", back_populates="synonym", lazy="select")

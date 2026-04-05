@@ -46,25 +46,28 @@ DOWN   = "down"
 # ---------------------------------------------------------------------------
 VANSKELIGHET: dict[str, dict] = {
     "lett": {
-        "min_len":    3,
-        "max_len":    6,
-        "pool_size":  400,
-        "ordklasser": ("substantiv", "verb", "adjektiv", "egennavn"),
-        "min_ord":    5,
+        "min_len":       3,
+        "max_len":       6,
+        "pool_size":     400,
+        "ordklasser":    ("substantiv", "verb", "adjektiv", "egennavn"),
+        "min_ord":       5,
+        "maks_korte":    2,   # maks antall 2-bokstavsord per brett
     },
     "middels": {
-        "min_len":    4,
-        "max_len":    9,
-        "pool_size":  600,
-        "ordklasser": ("substantiv", "verb", "adjektiv", "egennavn"),
-        "min_ord":    7,
+        "min_len":       4,
+        "max_len":       9,
+        "pool_size":     600,
+        "ordklasser":    ("substantiv", "verb", "adjektiv", "egennavn"),
+        "min_ord":       7,
+        "maks_korte":    2,
     },
     "vanskelig": {
-        "min_len":    5,
-        "max_len":    15,
-        "pool_size":  800,
-        "ordklasser": ("substantiv", "verb", "adjektiv", "egennavn"),
-        "min_ord":    9,
+        "min_len":       5,
+        "max_len":       15,
+        "pool_size":     800,
+        "ordklasser":    ("substantiv", "verb", "adjektiv", "egennavn"),
+        "min_ord":       9,
+        "maks_korte":    3,
     },
 }
 
@@ -347,14 +350,25 @@ class KryssordGenerator:
         if seed is not None:
             random.seed(seed)
 
-        # Filtrer og bland ordlisten
-        filtrert = [
+        maks_korte = self.cfg.get("maks_korte", 2)
+
+        # Skill korte ord (2 bokstaver) fra vanlige
+        korte   = [o for o in ord_liste if len(o) == 2 and o.isalpha()]
+        vanlige = [
             o for o in ord_liste
             if self.cfg["min_len"] <= len(o) <= self.maks_ordlen
+            and len(o) > 2
             and o.isalpha()
         ]
-        random.shuffle(filtrert)
-        self._ord_liste = filtrert[: self.cfg["pool_size"]]
+
+        random.shuffle(vanlige)
+        random.shuffle(korte)
+
+        # Begrens korte ord og kombiner
+        valgte_korte = korte[:maks_korte]
+        filtrert = vanlige[: self.cfg["pool_size"]] + valgte_korte
+
+        self._ord_liste = filtrert
         self._index     = WordIndex(self._ord_liste)
         self._ord_sett  = set(self._ord_liste)
 
@@ -490,15 +504,36 @@ def hent_ord_fra_db(
     vanskelighetsgrad: str = "middels",
     storrelse: int = 13,
 ) -> list[str]:
-    cfg        = VANSKELIGHET[vanskelighetsgrad]
-    maks_len   = min(cfg["max_len"], GRID_MAKS_ORDLENGDE[storrelse])
-    ordklasser = cfg["ordklasser"]
+    """
+    Henter ord fra databasen filtrert på vanskelighetsgrad og gridstørrelse.
 
+    - Ekskluderer sammensatte ord (har_bindestrek / har_mellomrom).
+    - Inkluderer maksimalt `maks_korte` 2-bokstavsord per brett.
+    """
+    cfg          = VANSKELIGHET[vanskelighetsgrad]
+    maks_len     = min(cfg["max_len"], GRID_MAKS_ORDLENGDE[storrelse])
+    maks_korte   = cfg.get("maks_korte", 2)
+    ordklasser   = cfg["ordklasser"]
     placeholders = ",".join(["%s"] * len(ordklasser))
-    sql = f"""
+
+    # Vanlige ord (3+ bokstaver, ingen sammensatte)
+    sql_vanlg = f"""
         SELECT tekst FROM ord
         WHERE bokstavlengde BETWEEN %s AND %s
           AND ordklasse IN ({placeholders})
+          AND har_bindestrek = false
+          AND har_mellomrom  = false
+          AND tekst ~ '^[a-zæøå]+$'
+        ORDER BY random()
+        LIMIT %s
+    """
+
+    # Korte ord (2 bokstaver) – begrenset antall per brett
+    sql_korte = """
+        SELECT tekst FROM ord
+        WHERE kort_ord = true
+          AND har_bindestrek = false
+          AND har_mellomrom  = false
           AND tekst ~ '^[a-zæøå]+$'
         ORDER BY random()
         LIMIT %s
@@ -507,8 +542,18 @@ def hent_ord_fra_db(
     conn = psycopg2.connect(database_url)
     try:
         with conn.cursor() as cur:
-            cur.execute(sql, (cfg["min_len"], maks_len, *ordklasser, cfg["pool_size"] * 2))
-            return [row[0] for row in cur.fetchall()]
+            min_len = max(cfg["min_len"], 3)   # aldri under 3 for vanlige ord
+            cur.execute(sql_vanlg, (min_len, maks_len, *ordklasser, cfg["pool_size"] * 2))
+            vanlige = [row[0] for row in cur.fetchall()]
+
+            korte: list[str] = []
+            if maks_korte > 0:
+                cur.execute(sql_korte, (maks_korte * 8,))   # hent litt ekstra, velg tilfeldig
+                alle_korte = [row[0] for row in cur.fetchall()]
+                random.shuffle(alle_korte)
+                korte = alle_korte[:maks_korte]
+
+            return vanlige + korte
     finally:
         conn.close()
 

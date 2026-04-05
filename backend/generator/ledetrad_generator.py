@@ -146,11 +146,27 @@ def _velg_synonym(tekst: str, synonymer: list[str]) -> str | None:
     return kandidater[0] if kandidater else None
 
 
-def _kategori_ledetrad(kategorier: list[str], lengde: int) -> str | None:
+def _lengde_streng(tekst: str) -> str:
+    """
+    Returnerer lengde-representasjonen for ledetråden.
+
+    Enkle ord:        "6 bokstaver"
+    Sammensatte ord:  "5-4-5"   (lengden av hvert del, uten separator)
+    """
+    if "-" in tekst or " " in tekst:
+        separator = "-" if "-" in tekst else " "
+        deler = tekst.split(separator)
+        del_lengder = [str(len(d)) for d in deler if d]
+        return "-".join(del_lengder)
+    return f"{len(tekst)} bokstaver"
+
+
+def _kategori_ledetrad(kategorier: list[str], tekst: str) -> str | None:
     """Finner beste kategori-mal. Returnerer ferdig ledetråd eller None."""
+    lengde_str = _lengde_streng(tekst)
     for kat in kategorier:
         if kat in _KATEGORI_MAL:
-            return f"{_KATEGORI_MAL[kat]} ({lengde} bokstaver)"
+            return f"{_KATEGORI_MAL[kat]} ({lengde_str})"
     return None
 
 
@@ -161,11 +177,13 @@ def lag_ledetrad(
     kategorier: list[str],
 ) -> LedetradOppslag:
     """Bygger en LedetradOppslag for ett ord."""
-    lengde = len(tekst)
+    lengde_str = _lengde_streng(tekst)
+    # Faktisk bokstavlengde (uten separatorer) — brukes til fallback-tekster
+    bokstavlengde = len(tekst.replace("-", "").replace(" ", ""))
 
     # 1. Egennavn → prøv kategori-mal
     if ordklasse == "egennavn" or (not ordklasse and kategorier):
-        kat_ledetrad = _kategori_ledetrad(kategorier, lengde)
+        kat_ledetrad = _kategori_ledetrad(kategorier, tekst)
         if kat_ledetrad:
             return LedetradOppslag(
                 tekst=tekst,
@@ -178,7 +196,7 @@ def lag_ledetrad(
         return LedetradOppslag(
             tekst=tekst,
             ordklasse=ordklasse,
-            ledetrad=f"Egennavn ({lengde} bokstaver)",
+            ledetrad=f"Egennavn ({lengde_str})",
             kilde="ordklasse",
             synonymer=synonymer,
             kategorier=kategorier,
@@ -191,7 +209,7 @@ def lag_ledetrad(
             return LedetradOppslag(
                 tekst=tekst,
                 ordklasse=ordklasse,
-                ledetrad=f"{valgt.capitalize()} ({lengde} bokstaver)",
+                ledetrad=f"{valgt.capitalize()} ({lengde_str})",
                 kilde="synonym",
                 synonymer=synonymer,
                 kategorier=kategorier,
@@ -202,7 +220,7 @@ def lag_ledetrad(
         return LedetradOppslag(
             tekst=tekst,
             ordklasse=ordklasse,
-            ledetrad=f"{_ORDKLASSE_MAL[ordklasse]} ({lengde} bokstaver)",
+            ledetrad=f"{_ORDKLASSE_MAL[ordklasse]} ({lengde_str})",
             kilde="ordklasse",
             synonymer=synonymer,
             kategorier=kategorier,
@@ -212,7 +230,7 @@ def lag_ledetrad(
     return LedetradOppslag(
         tekst=tekst,
         ordklasse=ordklasse,
-        ledetrad=f"Se opp ({lengde} bokstaver)",
+        ledetrad=f"Se opp ({lengde_str})",
         kilde="fallback",
         synonymer=synonymer,
         kategorier=kategorier,
