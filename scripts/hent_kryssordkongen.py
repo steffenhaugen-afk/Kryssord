@@ -2,12 +2,18 @@
 Henter ledetråd→svar-par fra kryssordkongen.no.
 
 Strategi:
-  For hvert ord vi søker med (/hint/?q={ord}), returnerer siden en liste
-  over kryssordsvaret som passer til den ledetråden.
-  Vi lagrer par (ledetrad=søkeord, svar=treff) i kryssord_ledetrad_par.
+  Kryssordkongen.no: /hint/?q={ledetråd} returnerer mulige SVAR på ledetråden.
+  Dvs. hvis vi søker "hus" som ledetråd, får vi tilbake synonymer/relaterte ord:
+  BOLIG, BOPEL, HYBEL, RØNNE, HJEM, osv.
 
-  I ledetrad_generator brukes tabellen omvendt:
-  gitt et svar-ord → finn ledetråder som peker på det.
+  Vi lagrer det OMVENDT av søket:
+    ledetrad = returnert svar (f.eks. "bolig")
+    svar     = søkeordet vårt (f.eks. "hus")
+
+  Slik at ledetrad_generator kan slå opp: WHERE svar='hus' → få "bolig" som ledetråd.
+
+  Filter: bare returnerte svar på 3–15 bokstaver (rene norske bokstaver).
+  Dette filtrerer ut forkortelser som ADJ, VB, PL osv.
 
 Bruk:
     python scripts/hent_kryssordkongen.py [--limit N] [--dry-run]
@@ -59,7 +65,11 @@ def parse_svar(html: str) -> list[str]:
     Parser tabellen i /hint/?q={ord} og returnerer svar-ord.
 
     Tabellstrukturen er: <td>{nr}</td><td>{SVAR}</td><td>{lengde}</td><td>…</td>
-    Vi henter kolonnen med SVAR (ren tekst, kun bokstaver, 2–15 tegn).
+    Vi henter kolonnen med SVAR (ren tekst, kun bokstaver).
+
+    Filter: 4–15 bokstaver. 4-bokstaver-minimum fjerner de fleste forkortelser
+    (ADJ, VB, SUV, NSB) og korte støyord, mens vi beholder gode synonymer som
+    FERM, AUTO, GLAD, FLINK, DROSJE osv.
     """
     svar = []
     rows = re.findall(r"<tr[^>]*>(.*?)</tr>", html, re.DOTALL)
@@ -71,7 +81,7 @@ def parse_svar(html: str) -> list[str]:
         # Kolonnen med svar er index 1 (etter løpenummer)
         if len(clean) >= 2:
             kandidat = clean[1].upper()
-            if re.match(r"^[A-ZÆØÅ]{2,15}$", kandidat):
+            if re.match(r"^[A-ZÆØÅ]{4,15}$", kandidat):
                 svar.append(kandidat)
     return svar
 
@@ -79,9 +89,16 @@ def parse_svar(html: str) -> list[str]:
 # ---------------------------------------------------------------------------
 # Database
 # ---------------------------------------------------------------------------
-def lagre_par(cur, ledetrad: str, svar_liste: list[str], kilde: str = "kryssordkongen") -> int:
+def lagre_par(cur, svar: str, ledetrad_liste: list[str], kilde: str = "kryssordkongen") -> int:
+    """
+    Lagrer par der:
+      svar     = ordet fra vår DB (det vi søkte med som ledetråd på siden)
+      ledetrad = resultatet fra siden (synonym/relatert ord som kan brukes som ledetråd)
+
+    Eksempel: søkte "hus" → fikk tilbake "BOLIG" → lagrer ledetrad="bolig", svar="HUS"
+    """
     ny = 0
-    for svar in svar_liste:
+    for ledetrad in ledetrad_liste:
         cur.execute(
             """
             INSERT INTO kryssord_ledetrad_par (ledetrad, svar, kilde)
@@ -140,22 +157,24 @@ def hent_par(ord_liste: list[str], conn, dry_run: bool) -> dict:
             resp.raise_for_status()
             resp.encoding = "utf-8"
 
-            svar_liste = parse_svar(resp.text)
+            # parse_svar returnerer ord som kom tilbake fra siden (synonymer/relaterte ord)
+            # Disse lagres som LEDETRÅDER som peker PÅ søkeordet vårt
+            ledetrad_liste = parse_svar(resp.text)
             stats["hentet"] += 1
 
-            if not svar_liste:
+            if not ledetrad_liste:
                 stats["ord_uten_svar"] += 1
-                log.debug("Ingen svar for: %s", ord_)
+                log.debug("Ingen ledetråder for: %s", ord_)
             else:
                 if not dry_run:
                     with conn.cursor() as cur:
-                        ny = lagre_par(cur, ord_, svar_liste)
+                        ny = lagre_par(cur, ord_, ledetrad_liste)
                         stats["ny_par"] += ny
                     conn.commit()
                 log.info(
-                    "[%d/%d] %-15s → %d svar (f.eks. %s)",
+                    "[%d/%d] %-15s → %d ledetråder (f.eks. %s)",
                     i + 1, len(ord_liste), ord_,
-                    len(svar_liste), ", ".join(svar_liste[:4]),
+                    len(ledetrad_liste), ", ".join(ledetrad_liste[:4]),
                 )
 
         except Exception as exc:

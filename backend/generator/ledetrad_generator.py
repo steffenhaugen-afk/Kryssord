@@ -91,13 +91,25 @@ def _hent_ord_info(
         for row in cur.fetchall()
     }
 
-    # Kryssordkongen-ledetråder: ord brukt som svar → hent tilhørende ledetråder
+    # Kryssordkongen-ledetråder: finn ledetråder som peker PÅ hvert ord.
+    # Filtrer til ledetråder som finnes som vanlige ord i vår DB (ikkje støy/forkortingar).
+    # Prioriter: 1) same ordklasse som søkeordet, 2) 5-10 bokstavar, 3) lengde.
     cur.execute(
         f"""
-        SELECT UPPER(svar), ledetrad
-        FROM kryssord_ledetrad_par
-        WHERE UPPER(svar) IN ({placeholders})
-        ORDER BY ledetrad
+        SELECT UPPER(klp.svar), klp.ledetrad
+        FROM kryssord_ledetrad_par klp
+        JOIN ord o_svar ON UPPER(o_svar.tekst) = UPPER(klp.svar)
+        JOIN ord o      ON o.tekst = klp.ledetrad
+        WHERE UPPER(klp.svar) IN ({placeholders})
+          AND o.ordklasse IN ('substantiv', 'verb', 'adjektiv')
+          AND o.har_bindestrek = false
+          AND o.har_mellomrom  = false
+        ORDER BY
+          -- 1. Same ordklasse som søkeordet gir mest presise synonymer
+          CASE WHEN o.ordklasse = o_svar.ordklasse THEN 0 ELSE 1 END,
+          -- 2. Foretrekk 5-10 bokstavar
+          CASE WHEN o.bokstavlengde BETWEEN 5 AND 10 THEN 0 ELSE 1 END,
+          o.bokstavlengde
         """,
         [t.upper() for t in tekst_liste],
     )
@@ -212,9 +224,9 @@ def lag_ledetrad(
     alle_syn   = list(synonymer_nw) + list(synonymer)
     lengde_str = _lengde_streng(tekst)
 
-    # 1. Kryssordkongen
+    # 1. Kryssordkongen (første = høyest frekvens, fra sortert liste)
     if kryssord_ledetrad:
-        ledetrad = min(kryssord_ledetrad, key=len)
+        ledetrad = kryssord_ledetrad[0]
         return LedetradOppslag(
             tekst=tekst, ordklasse=ordklasse,
             ledetrad=f"{ledetrad.capitalize()} ({lengde_str})",
@@ -376,10 +388,9 @@ class LedetradGenerator:
         alle_syn = synonymer_nw + synonymer
         lengde_str = _lengde_streng(tekst)
 
-        # 1. Kryssordkongen-ledetråd
+        # 1. Kryssordkongen-ledetråd (liste sortert etter frekvens DESC fra DB-query)
         if kryssord_ledetrad:
-            # Velg korteste ledetråd (typisk mest presis)
-            ledetrad = min(kryssord_ledetrad, key=len)
+            ledetrad = kryssord_ledetrad[0]  # høyest frekvens
             return LedetradOppslag(
                 tekst=tekst, ordklasse=ordklasse,
                 ledetrad=f"{ledetrad.capitalize()} ({lengde_str})",
