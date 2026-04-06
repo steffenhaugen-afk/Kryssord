@@ -7,9 +7,6 @@ Prioriteringsrekkefølge
   2. NorWordNet-synonym (kilde='norwordnet')
   3. Synonym fra DB (ordbokapi o.l.)
   4. Kategori-basert mal, f.eks. "Norsk fjell (8 bokstaver)"
-
-Merk: NAOB brukes kun som kilde for løsningsord i ordbanken (ord.definisjon),
-ikke som ledetråd-kilde.
 """
 from __future__ import annotations
 
@@ -67,7 +64,6 @@ def _hent_ord_info(
 
     placeholders = ",".join(["%s"] * len(tekst_liste))
 
-    # Ordklasse (NAOB-definisjon brukes ikke som ledetråd-kilde)
     cur.execute(
         f"SELECT tekst, ordklasse FROM ord WHERE tekst IN ({placeholders})",
         tekst_liste,
@@ -242,8 +238,8 @@ def lag_ledetrad(
                 kilde="synonym", synonymer=alle_syn, kategorier=kategorier,
             )
 
-    # 4. Kategori-mal (egennavn)
-    if ordklasse == "egennavn" or (not ordklasse and kategorier):
+    # 4. Kategori-mal
+    if kategorier:
         kat_ledetrad = _kategori_ledetrad(kategorier, tekst)
         if kat_ledetrad:
             return LedetradOppslag(
@@ -396,27 +392,6 @@ class LedetradGenerator:
         try:
             with conn.cursor() as cur:
                 return _hent_ord_info(cur, tekst_liste)
-        finally:
-            conn.close()
-
-    def _hent_ai_cache(self, tekst_liste: list[str]) -> dict[str, str]:
-        """Henter AI-ledetråder fra cache for alle ord i listen. Returnerer {tekst: ledetrad}."""
-        if not tekst_liste:
-            return {}
-        placeholders = ",".join(["%s"] * len(tekst_liste))
-        conn = psycopg2.connect(self._db_url)
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    f"""
-                    SELECT o.tekst, a.ledetrad
-                    FROM ai_ledetrad a
-                    JOIN ord o ON o.id = a.ord_id
-                    WHERE o.tekst IN ({placeholders})
-                    """,
-                    tekst_liste,
-                )
-                return {row[0]: row[1] for row in cur.fetchall()}
         finally:
             conn.close()
 
