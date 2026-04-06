@@ -46,32 +46,41 @@ DOWN   = "down"
 # ---------------------------------------------------------------------------
 VANSKELIGHET: dict[str, dict] = {
     "lett": {
-        "min_len":       3,
-        "max_len":       6,
-        "pool_size":     400,
-        "ordklasser":    ("substantiv", "verb", "adjektiv", "egennavn"),
-        "min_ord":       5,
-        "maks_korte":    2,   # maks antall 2-bokstavsord per brett
+        "min_len":        3,
+        "max_len":        7,     # korte ord → naturlig tettere svartmønster
+        "pool_size":      30000,
+        "ordklasser":     ("substantiv", "verb", "adjektiv"),
+        "min_ord":        12,
+        "maal_svart_pst": 20,    # stopp filling her (med nok ord)
+        "min_svart_pst":  15,    # akseptgrense
+        "maks_svart_pst": 28,
+        "maks_korte":     2,
     },
     "middels": {
-        "min_len":       4,
-        "max_len":       9,
-        "pool_size":     600,
-        "ordklasser":    ("substantiv", "verb", "adjektiv", "egennavn"),
-        "min_ord":       7,
-        "maks_korte":    2,
+        "min_len":        4,
+        "max_len":        11,
+        "pool_size":      60000,
+        "ordklasser":     ("substantiv", "verb", "adjektiv", "egennavn"),
+        "min_ord":        22,
+        "maal_svart_pst": 20,
+        "min_svart_pst":  15,
+        "maks_svart_pst": 28,
+        "maks_korte":     2,
     },
     "vanskelig": {
-        "min_len":       5,
-        "max_len":       15,
-        "pool_size":     800,
-        "ordklasser":    ("substantiv", "verb", "adjektiv", "egennavn"),
-        "min_ord":       9,
-        "maks_korte":    3,
+        "min_len":        5,
+        "max_len":        15,
+        "pool_size":      80000,
+        "ordklasser":     ("substantiv", "verb", "adjektiv", "egennavn"),
+        "min_ord":        32,
+        "maal_svart_pst": 20,
+        "min_svart_pst":  15,
+        "maks_svart_pst": 28,
+        "maks_korte":     3,
     },
 }
 
-GRID_MAKS_ORDLENGDE = {9: 7, 13: 11, 17: 15}
+GRID_MAKS_ORDLENGDE = {9: 9, 13: 13, 17: 17}
 
 
 # ---------------------------------------------------------------------------
@@ -190,27 +199,29 @@ class Grid:
     # ---- Validering ----
 
     def kan_plassere(self, ord_: str, rad: int, kol: int, retning: str) -> bool:
+        """
+        Sjekker om et ord kan plasseres.
+
+        Regler:
+        - Ord må være innenfor grid-grensene
+        - Ingen løpende nabo rett før/etter ordet (unngår ord som støter sammen)
+        - Ingen bokstavkonflikter med allerede plasserte bokstaver
+        - Minst ett kryss med en eksisterende bokstav
+        """
         n = len(ord_)
 
         if retning == ACROSS:
             if kol < 0 or kol + n > self.n or rad < 0 or rad >= self.n:
                 return False
-            # Ingen løpende nabo før/etter
+            # Ingen løpende nabo rett FØR og ETTER ordet
             if kol > 0 and self.celler[rad][kol - 1] != "#":
                 return False
             if kol + n < self.n and self.celler[rad][kol + n] != "#":
                 return False
             for i, bokstav in enumerate(ord_):
-                c = kol + i
-                celle = self.celler[rad][c]
+                celle = self.celler[rad][kol + i]
                 if celle != "#" and celle != bokstav:
                     return False
-                # Ingen parallell nabo (med mindre vi krysser)
-                if celle == "#":
-                    if rad > 0 and self.celler[rad - 1][c] != "#":
-                        return False
-                    if rad < self.n - 1 and self.celler[rad + 1][c] != "#":
-                        return False
         else:
             if rad < 0 or rad + n > self.n or kol < 0 or kol >= self.n:
                 return False
@@ -219,17 +230,11 @@ class Grid:
             if rad + n < self.n and self.celler[rad + n][kol] != "#":
                 return False
             for i, bokstav in enumerate(ord_):
-                r = rad + i
-                celle = self.celler[r][kol]
+                celle = self.celler[rad + i][kol]
                 if celle != "#" and celle != bokstav:
                     return False
-                if celle == "#":
-                    if kol > 0 and self.celler[r][kol - 1] != "#":
-                        return False
-                    if kol < self.n - 1 and self.celler[r][kol + 1] != "#":
-                        return False
 
-        # Krev minst ett kryss (unntatt første ord)
+        # Krev minst ett kryss med eksisterende bokstav
         har_kryss = any(
             self.celler[r][c] != "#"
             for r, c in (
@@ -268,6 +273,7 @@ class Grid:
         if retning == ACROSS:
             if kol + n > self.n:
                 return False
+            # Ingen løpende nabo rett før/etter
             if kol > 0 and self.celler[rad][kol - 1] != "#":
                 return False
             if kol + n < self.n and self.celler[rad][kol + n] != "#":
@@ -280,20 +286,8 @@ class Grid:
             if rad + n < self.n and self.celler[rad + n][kol] != "#":
                 return False
 
-        har_kryss = False
-        for r, c in slot.celler():
-            celle = self.celler[r][c]
-            if celle != "#":
-                har_kryss = True
-            elif retning == ACROSS:
-                if (r > 0 and self.celler[r - 1][c] != "#") or \
-                   (r < self.n - 1 and self.celler[r + 1][c] != "#"):
-                    return False
-            else:
-                if (c > 0 and self.celler[r][c - 1] != "#") or \
-                   (c < self.n - 1 and self.celler[r][c + 1] != "#"):
-                    return False
-
+        # Krev minst én eksisterende bokstav (kryss) i sloten
+        har_kryss = any(self.celler[r][c] != "#" for r, c in slot.celler())
         return har_kryss
 
     # ---- Ledetråd-nummerering ----
@@ -364,9 +358,9 @@ class KryssordGenerator:
         random.shuffle(vanlige)
         random.shuffle(korte)
 
-        # Begrens korte ord og kombiner
+        # Bruk alle ord (hent_ord_fra_db begrenser allerede til pool_size)
         valgte_korte = korte[:maks_korte]
-        filtrert = vanlige[: self.cfg["pool_size"]] + valgte_korte
+        filtrert = vanlige + valgte_korte
 
         self._ord_liste = filtrert
         self._index     = WordIndex(self._ord_liste)
@@ -378,93 +372,288 @@ class KryssordGenerator:
         """
         Returnerer et GridResultat eller None hvis ingen løsning finnes
         innen maks_tid sekunder.
+
+        Strategi: bygg ryggrad (lange kryss-ord i midten), deretter greedy fill.
+        Prøver inntil 3 ganger.
         """
         start = time.monotonic()
+        maks_forsok = 5
 
-        grid       = Grid(self.storrelse)
-        plasserte: list[OrdPlassering] = []
-        brukte_ord: set[str] = set()
+        for forsok in range(maks_forsok):
+            elapsed = time.monotonic() - start
+            if elapsed > self.maks_tid * 0.95:
+                break
 
-        # Plasser første ord horisontalt i midten
-        midt = self.storrelse // 2
-        kandidater = sorted(
-            [o for o in self._ord_liste if self.cfg["min_len"] + 2 <= len(o) <= self.maks_ordlen],
-            key=lambda x: -len(x),
+            tid_per_forsok = (self.maks_tid - elapsed) / (maks_forsok - forsok)
+            forsok_start   = time.monotonic()
+
+            grid       = Grid(self.storrelse)
+            plasserte: list[OrdPlassering] = []
+            brukte_ord: set[str] = set()
+
+            if not self._konstruer_ryggrad(grid, plasserte, brukte_ord, forsok):
+                continue
+
+            self._fyll_graadig(grid, plasserte, brukte_ord, forsok_start, tid_per_forsok)
+            self._juster_svarte_ruter(grid)
+
+            n          = self.storrelse
+            svarte     = sum(1 for rad in grid.celler for c in rad if c == "#")
+            svart_pst  = svarte / (n * n) * 100
+            min_svart  = self.cfg.get("min_svart_pst",  12)
+            maks_svart = self.cfg.get("maks_svart_pst", 30)
+
+            log.info(
+                "Forsøk %d/%d: %d ord, %.1f%% svarte ruter (%d–%d%%)",
+                forsok + 1, maks_forsok, len(plasserte), svart_pst,
+                min_svart, maks_svart,
+            )
+
+            if (len(plasserte) >= self.min_ord
+                    and min_svart <= svart_pst <= maks_svart):
+                return self._bygg_resultat(grid, plasserte)
+
+        log.warning(
+            "Klarte ikke fylle brettet etter %d forsøk (min_ord=%d)",
+            maks_forsok, self.min_ord,
         )
-        if not kandidater:
-            log.warning("Ingen gyldige startord funnet")
-            return None
+        return None
 
-        forste = kandidater[0]
-        start_kol = (self.storrelse - len(forste)) // 2
+    def _konstruer_ryggrad(
+        self,
+        grid:       Grid,
+        plasserte:  list[OrdPlassering],
+        brukte_ord: set[str],
+        forsok:     int,
+    ) -> bool:
+        """
+        Legger 1-3 startord som dekker ulike deler av brettet:
+        - Første ord ACROSS i midtraden (grunnspine)
+        - Deretter ned-ord som krysser det og spenner topp/bunn
+        Returnerer False hvis ingen startord ble funnet.
+        """
+        n    = self.storrelse
+        midt = n // 2
+
+        alle_sortert = sorted(self._ord_liste, key=lambda x: -len(x))
+
+        # --- 1. Langt ACROSS-ord i midten ---
+        h_kand = [o for o in alle_sortert if self.cfg["min_len"] + 2 <= len(o) <= self.maks_ordlen]
+        if not h_kand:
+            return False
+
+        forste    = h_kand[forsok % min(5, len(h_kand))]
+        start_kol = (n - len(forste)) // 2
         grid.plasser(forste, midt, start_kol, ACROSS)
         plasserte.append(OrdPlassering(forste, ACROSS, midt, start_kol))
         brukte_ord.add(forste)
 
-        # Backtracking
-        resultat = self._backtrack(grid, plasserte, brukte_ord, start)
-        if resultat is None:
-            return None
+        # --- 2. Lange ned-ord som krysser midtordet og dekker topp til bunn ---
+        # Prøv å plassere 2-3 ned-ord ved ulike kolonner i midtordet
+        # slik at vi har bokstaver i rad 0 og rad n-1
+        kol_kand = list(range(start_kol, start_kol + len(forste)))
+        random.shuffle(kol_kand)
+        ned_plassert = 0
 
-        return self._bygg_resultat(grid, plasserte)
+        for kol in kol_kand:
+            if ned_plassert >= max(2, n // 4):
+                break
+            bokstav = grid.celler[midt][kol]
+
+            # Finn ned-ord som spenner fra rad 0 til midt (eller midt til n-1)
+            for lengde in range(min(n, self.maks_ordlen), self.cfg["min_len"] - 1, -1):
+                funnet = False
+                for start_rad in [0, max(0, midt - lengde + 1), midt]:
+                    pos_i_ord = midt - start_rad
+                    if pos_i_ord < 0 or pos_i_ord >= lengde:
+                        continue
+                    if start_rad + lengde > n:
+                        continue
+
+                    # Sjekk at dette ned-ordet ikke kolliderer
+                    konflikt = False
+                    for ii in range(lengde):
+                        celle = grid.celler[start_rad + ii][kol]
+                        if ii == pos_i_ord:
+                            if celle != bokstav and celle != "#":
+                                konflikt = True
+                                break
+                        elif celle != "#":
+                            konflikt = True
+                            break
+                    if konflikt:
+                        continue
+
+                    passende = [
+                        o for o in alle_sortert
+                        if len(o) == lengde
+                        and o[pos_i_ord] == bokstav
+                        and o not in brukte_ord
+                    ]
+                    random.shuffle(passende)
+                    for ned_ord in passende[:8]:
+                        # Enkel bounds+konflikt-sjekk (ikke den strenge kan_plassere)
+                        if start_rad + lengde <= n:
+                            ok = True
+                            for ii, bk in enumerate(ned_ord):
+                                celle = grid.celler[start_rad + ii][kol]
+                                if celle != "#" and celle != bk:
+                                    ok = False
+                                    break
+                            if ok:
+                                grid.plasser(ned_ord, start_rad, kol, DOWN)
+                                plasserte.append(OrdPlassering(ned_ord, DOWN, start_rad, kol))
+                                brukte_ord.add(ned_ord)
+                                ned_plassert += 1
+                                funnet = True
+                                break
+                    if funnet:
+                        break
+                if funnet:
+                    break
+
+        return True
 
     # ---- Internals ----
 
-    def _backtrack(
+    def _fyll_graadig(
         self,
         grid:       Grid,
         plasserte:  list[OrdPlassering],
         brukte_ord: set[str],
         start_tid:  float,
-        dybde:      int = 0,
-    ) -> bool | None:
-        if len(plasserte) >= self.min_ord:
+        maks_tid:   float,
+    ) -> None:
+        """
+        Greedy fill – fortsetter å plassere ord til ingen flere passer
+        ELLER til svartandelen faller under måltettheten.
+
+        Velger alltid sloten med færrest gyldige kandidater (MCV) og
+        plasserer det første ordet som faktisk kan settes inn.  Ingen
+        backtracking – et plassert ord blir aldri angret.
+        """
+        n         = grid.n
+        # Stopp primært ved måltettheten (17%).
+        # Hvis vi mangler nok ord, fortsetter vi ned til minimumsgrensen (12%).
+        maal_pst  = self.cfg.get("maal_svart_pst", 17) / 100
+        stopp_pst = self.cfg.get("min_svart_pst",  12) / 100
+
+        while time.monotonic() - start_tid < maks_tid:
+            svarte = sum(1 for rad in grid.celler for c in rad if c == "#")
+            svart_andel = svarte / (n * n)
+            # Stopp ved målet med mindre vi fremdeles mangler nok ord
+            if svart_andel <= maal_pst and len(plasserte) >= self.min_ord:
+                break
+            # Hard stopp ved minimumgrensen
+            if svart_andel <= stopp_pst:
+                break
+
+            slots = grid.finn_slots(brukte_ord, self.cfg["min_len"], self.maks_ordlen)
+
+            gyldige: list[tuple[Slot, list[str]]] = []
+            for slot in slots:
+                kands = [
+                    k for k in self._index.kandidater(slot, grid.celler)
+                    if k not in brukte_ord
+                ]
+                if kands:
+                    gyldige.append((slot, kands))
+
+            if not gyldige:
+                break
+
+            # MCV: mest begrensede slot først
+            gyldige.sort(key=lambda x: len(x[1]))
+
+            plassert = False
+            for slot, kands in gyldige:
+                kands_prøv = kands[:30]
+                random.shuffle(kands_prøv)
+                for ord_ in kands_prøv:
+                    if grid.kan_plassere(ord_, slot.rad, slot.kol, slot.retning):
+                        grid.plasser(ord_, slot.rad, slot.kol, slot.retning)
+                        plasserte.append(
+                            OrdPlassering(ord_, slot.retning, slot.rad, slot.kol)
+                        )
+                        brukte_ord.add(ord_)
+                        plassert = True
+                        break
+                if plassert:
+                    break
+
+            if not plassert:
+                break
+
+    def _juster_svarte_ruter(self, grid: Grid) -> None:
+        """
+        Legg til svarte ruter med 180°-rotasjonssymmetri til vi når maal_svart_pst.
+
+        Strategi – finner celler som trygt kan bli svarte:
+        En celle (r,c) er trygt svart hvis:
+          - Den er allerede '#', OG
+          - Det ikke finnes bokstaver på BEGGE sider horisontalt
+            (da ville vi delt et horisontalt ord), OG
+          - Det ikke finnes bokstaver på BEGGE sider vertikalt.
+
+        For celler med bokstav: aldri konverter – det ville fjerne et ord.
+
+        Kaller vi par (r,c) + speil (n-1-r, n-1-c): begge må oppfylle kravet.
+        """
+        n         = grid.n
+        maal      = self.cfg.get("maal_svart_pst", 17) / 100
+        min_svart = self.cfg.get("min_svart_pst",  12) / 100
+
+        def svart_pst() -> float:
+            return sum(1 for rad in grid.celler for c in rad if c == "#") / (n * n)
+
+        if svart_pst() >= min_svart:
+            return  # allerede innenfor ønsket område
+
+        def er_trygg(r: int, c: int) -> bool:
+            if grid.celler[r][c] != "#":
+                return False
+            h_v = c > 0     and grid.celler[r][c - 1] != "#"
+            h_h = c < n - 1 and grid.celler[r][c + 1] != "#"
+            v_o = r > 0     and grid.celler[r - 1][c] != "#"
+            v_u = r < n - 1 and grid.celler[r + 1][c] != "#"
+            if h_v and h_h:
+                return False   # horisontalt ord splittes
+            if v_o and v_u:
+                return False   # vertikalt ord splittes
             return True
 
-        if time.monotonic() - start_tid > self.maks_tid:
-            # Returner det beste vi har funnet hvis vi har nok ord
-            return len(plasserte) >= max(3, self.min_ord // 2) or None
-
-        slots = grid.finn_slots(brukte_ord, self.cfg["min_len"], self.maks_ordlen)
-        if not slots:
-            return len(plasserte) >= max(3, self.min_ord // 2) or None
-
-        # MCV: sorter etter færrest kandidater (mest begrenset slot først)
-        slots_med_kandidater = []
-        for slot in slots:
-            kands = self._index.kandidater(slot, grid.celler)
-            kands = [k for k in kands if k not in brukte_ord]
-            if kands:
-                slots_med_kandidater.append((slot, kands))
-
-        if not slots_med_kandidater:
-            return len(plasserte) >= max(3, self.min_ord // 2) or None
-
-        slots_med_kandidater.sort(key=lambda x: len(x[1]))
-
-        for slot, kands in slots_med_kandidater[:6]:   # prøv maks 6 slots per nivå
-            random.shuffle(kands)
-            for ord_ in kands[:12]:                    # prøv maks 12 ord per slot
-                if time.monotonic() - start_tid > self.maks_tid:
-                    return len(plasserte) >= max(3, self.min_ord // 2) or None
-
-                if not grid.kan_plassere(ord_, slot.rad, slot.kol, slot.retning):
+        # Samle gyldige symmetriske par, prioriter de nærmest midten
+        # (hjørner/kanter er gjerne de enkleste å legge svarte ruter)
+        sett: set[tuple] = set()
+        par_liste: list[tuple] = []
+        midt = n / 2
+        for r in range(n):
+            for c in range(n):
+                sr, sc = n - 1 - r, n - 1 - c
+                if (r, c) == (sr, sc):
                     continue
+                nøkkel = (min(r, sr), min(c, sc), max(r, sr), max(c, sc))
+                if nøkkel in sett:
+                    continue
+                sett.add(nøkkel)
+                if er_trygg(r, c) and er_trygg(sr, sc):
+                    # Avstand fra sentrum – foretrekk celler langt fra midten
+                    avstand = (r - midt) ** 2 + (c - midt) ** 2
+                    par_liste.append((avstand, (r, c), (sr, sc)))
 
-                grid.plasser(ord_, slot.rad, slot.kol, slot.retning)
-                plasserte.append(OrdPlassering(ord_, slot.retning, slot.rad, slot.kol))
-                brukte_ord.add(ord_)
+        # Sorter: lengst fra sentrum først (hjørner og kanter)
+        par_liste.sort(key=lambda x: -x[0])
 
-                resultat = self._backtrack(grid, plasserte, brukte_ord, start_tid, dybde + 1)
-                if resultat:
-                    return True
+        for _, (r, c), (sr, sc) in par_liste:
+            if svart_pst() >= maal:
+                break
+            grid.celler[r][c]   = "#"
+            grid.celler[sr][sc] = "#"
 
-                # Angre
-                grid.fjern(ord_, slot.rad, slot.kol, slot.retning)
-                plasserte.pop()
-                brukte_ord.discard(ord_)
-
-        return len(plasserte) >= max(3, self.min_ord // 2) or None
+        log.debug(
+            "Etter symmetri-justering: %.1f%% svarte ruter (mål %.1f%%)",
+            svart_pst() * 100, maal * 100,
+        )
 
     def _bygg_resultat(self, grid: Grid, plasserte: list[OrdPlassering]) -> GridResultat:
         nummerert = grid.nummerer_celler()
@@ -543,7 +732,7 @@ def hent_ord_fra_db(
     try:
         with conn.cursor() as cur:
             min_len = max(cfg["min_len"], 3)   # aldri under 3 for vanlige ord
-            cur.execute(sql_vanlg, (min_len, maks_len, *ordklasser, cfg["pool_size"] * 2))
+            cur.execute(sql_vanlg, (min_len, maks_len, *ordklasser, cfg["pool_size"]))
             vanlige = [row[0] for row in cur.fetchall()]
 
             korte: list[str] = []
@@ -605,7 +794,7 @@ def generer_og_lagre(
     vanskelighetsgrad: str   = "middels",
     publiser:          bool  = False,
     tittel:            str | None = None,
-    maks_tid:          float = 15.0,
+    maks_tid:          float = 30.0,
     seed:              int | None = None,
 ) -> dict:
     """
@@ -645,10 +834,38 @@ def generer_og_lagre(
 
 
 # ---------------------------------------------------------------------------
-# Benchmark – kjøres direkte: python kryssord_generator.py
+# CLI – generer og vis ASCII-grid: python kryssord_generator.py [storrelse] [vanskelighetsgrad]
 # ---------------------------------------------------------------------------
+def _print_ascii_grid(grid_data: dict, ledetrad_json: dict) -> None:
+    celler = grid_data["celler"]
+    n      = len(celler)
+
+    hvite     = sum(1 for rad in celler for c in rad if c != "#")
+    svart_pst = (n * n - hvite) / (n * n) * 100
+
+    print(f"\n  {'─' * (n * 4 - 1)}")
+    for rad in celler:
+        linje = "  "
+        for celle in rad:
+            if celle == "#":
+                linje += "███ "
+            else:
+                linje += f" {celle.upper()}  "
+        print(linje)
+    print(f"  {'─' * (n * 4 - 1)}")
+    print(f"\n  Svarte ruter: {n * n - hvite}/{n * n} ({svart_pst:.1f}%)")
+
+    print("\n  Vannrett (across):")
+    for nr, oppslag in sorted(ledetrad_json.get("across", {}).items(), key=lambda x: int(x[0])):
+        print(f"    {nr:>3}. {oppslag['tekst'].upper():<15} ({oppslag['ledetrad']})")
+
+    print("\n  Loddrett (down):")
+    for nr, oppslag in sorted(ledetrad_json.get("down", {}).items(), key=lambda x: int(x[0])):
+        print(f"    {nr:>3}. {oppslag['tekst'].upper():<15} ({oppslag['ledetrad']})")
+
+
 if __name__ == "__main__":
-    import os, statistics
+    import os, sys, statistics
     from pathlib import Path
     from dotenv import load_dotenv
 
@@ -656,45 +873,60 @@ if __name__ == "__main__":
     load_dotenv(Path(__file__).parent.parent.parent / ".env")
     db_url = os.environ["DATABASE_URL"]
 
-    print("\n=== Kryssord-generator benchmark (10 kjøringer per konfigurasjon) ===\n")
+    # Les argumenter: storrelse og vanskelighetsgrad
+    args = sys.argv[1:]
+    if args and args[0].isdigit():
+        storrelse = int(args[0])
+        args = args[1:]
+    else:
+        storrelse = 9
 
-    konfigurasjoner = [
-        (9,  "lett"),
-        (13, "middels"),
-        (17, "vanskelig"),
-    ]
+    if args and args[0] in VANSKELIGHET:
+        vanskelighetsgrad = args[0]
+    else:
+        vanskelighetsgrad = "lett" if storrelse == 9 else ("middels" if storrelse == 13 else "vanskelig")
 
-    for storrelse, vanskelighetsgrad in konfigurasjoner:
-        tider:    list[float] = []
-        ant_ord:  list[int]   = []
-        feil                  = 0
+    print(f"\n=== Genererer {storrelse}×{storrelse} kryssord ({vanskelighetsgrad}) ===\n")
 
-        print(f"  {storrelse}×{storrelse} / {vanskelighetsgrad}", end="", flush=True)
-        ord_liste = hent_ord_fra_db(db_url, vanskelighetsgrad, storrelse)
-        print(f" ({len(ord_liste)} ord i pool)", end="", flush=True)
+    ord_liste = hent_ord_fra_db(db_url, vanskelighetsgrad, storrelse)
+    print(f"  Ord i pool: {len(ord_liste)}")
 
-        for i in range(10):
-            t0 = time.monotonic()
-            gen = KryssordGenerator(ord_liste, storrelse, vanskelighetsgrad, maks_tid=15.0)
-            res = gen.generer()
-            t1 = time.monotonic()
+    min_ord = VANSKELIGHET[vanskelighetsgrad]["min_ord"]
+    maks_svart = VANSKELIGHET[vanskelighetsgrad]["maks_svart_pst"]
+    print(f"  Mål: min {min_ord} ord, maks {maks_svart}% svarte ruter\n")
 
-            if res:
-                tider.append(t1 - t0)
-                ant_ord.append(res.antall_ord)
-                print(".", end="", flush=True)
-            else:
-                feil += 1
-                print("x", end="", flush=True)
+    t0  = time.monotonic()
+    gen = KryssordGenerator(ord_liste, storrelse, vanskelighetsgrad, maks_tid=30.0)
+    res = gen.generer()
+    tid = time.monotonic() - t0
 
-        print()
-        if tider:
-            print(
-                f"    Tid:     snitt={statistics.mean(tider):.2f}s  "
-                f"min={min(tider):.2f}s  max={max(tider):.2f}s"
-            )
-            print(
-                f"    Ord:     snitt={statistics.mean(ant_ord):.1f}  "
-                f"min={min(ant_ord)}  max={max(ant_ord)}"
-            )
-        print(f"    Feil:    {feil}/10\n")
+    if res is None:
+        print("  FEIL: Klarte ikke generere kryssord.")
+        sys.exit(1)
+
+    print(f"\n  Resultat: {res.antall_ord} ord plassert på {tid:.1f}s\n")
+    _print_ascii_grid(res.grid_json, res.ledetrad_json)
+
+    # Benchmark – 5 kjøringer
+    print("\n\n=== Benchmark (5 kjøringer) ===\n")
+    tider: list[float] = []
+    ant_ord: list[int] = []
+    feil = 0
+
+    for i in range(5):
+        t0  = time.monotonic()
+        gen = KryssordGenerator(ord_liste, storrelse, vanskelighetsgrad, maks_tid=30.0)
+        r   = gen.generer()
+        t1  = time.monotonic()
+        if r:
+            tider.append(t1 - t0)
+            ant_ord.append(r.antall_ord)
+            print(f"  {i+1}. {r.antall_ord} ord ({t1-t0:.1f}s)")
+        else:
+            feil += 1
+            print(f"  {i+1}. FEIL")
+
+    if tider:
+        print(f"\n  Snitt: {statistics.mean(ant_ord):.1f} ord, {statistics.mean(tider):.1f}s")
+        print(f"  Min/max ord: {min(ant_ord)} / {max(ant_ord)}")
+    print(f"  Feil: {feil}/5")

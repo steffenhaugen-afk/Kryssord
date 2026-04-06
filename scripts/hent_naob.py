@@ -58,55 +58,97 @@ def _strip_tags(html: str) -> str:
     return tekst.strip()
 
 
+import html as _htmllib
+
+
+def _ren_tekst(raw: str) -> str:
+    """Fjerner HTML-tagger, dekoder HTML-entiteter og normaliserer mellomrom."""
+    tekst = re.sub(r"<[^>]+>", " ", raw)
+    tekst = _htmllib.unescape(tekst)
+    tekst = re.sub(r"\s+", " ", tekst)
+    return tekst.strip()
+
+
+_STOPP_MØNSTRE = [
+    "cookie", "©", "http", "javascript", "naob.no",
+    "fritekst-søk", "søk ", "treff", "vipps", "kontonummer",
+    # Kvaifikatorfraser uten realinnhold
+    "mest i sammensetninger", "bare i sammensetninger", "i sammensetninger",
+    "mest muntlig", "mest skriftlig", "nå sjelden", "nå lite brukt",
+    "arkaiserende", "dialektalt", "eufemistisk", "nå lite",
+]
+
+
+def _valider_definisjon(tekst: str) -> bool:
+    """Returnerer True hvis teksten er en brukbar definisjon (ikke støy)."""
+    if len(tekst) < 15 or len(tekst) > 200:
+        return False
+    tekst_l = tekst.lower()
+    return not any(s in tekst_l for s in _STOPP_MØNSTRE)
+
+
 def parse_naob(html: str) -> dict:
     """
     Parser NAOB-side og returnerer dict med:
-      - definisjon: str | None  – korteste definisjon (maks 200 tegn)
-      - synonymer:  list[str]   – synonym-ord nevnt i teksten
+      - definisjon: str | None  – første top-nivå definisjon
+      - synonymer:  list[str]   – tom (hentes ikke her)
 
-    NAOB-HTML inneholder definisjoner i <span>-elementer med klasser som
-    'article__definition' eller inne i JSON-data. Vi prøver begge tilnærminger.
+    NAOB-HTML bruker:
+      class="bedeutning"   – nummererte definisjoner (f.eks. "1 bygning (til en bestemt bruk)")
+      class="shortform"    – lengre oppsummering (brukes av noen ord, f.eks. "rask")
+
+    Strategi:
+      1. Hent class="bedeutning"-blokker; ta toppnivå-definisjoner ("1 …", "2 …").
+      2. Valider og returner FØRSTE (ikke korteste!) brukbare.
+      3. Fallback til shortform-blokk.
     """
     resultat = {"definisjon": None, "synonymer": []}
 
-    # Strategi 1: lett etter <span class="...definition...">tekst</span>
-    definisjoner = re.findall(
-        r'<[^>]*class="[^"]*(?:definition|betydning|forklaring)[^"]*"[^>]*>(.*?)</[^>]+>',
-        html,
-        re.DOTALL | re.IGNORECASE,
-    )
-    if definisjoner:
-        kandidater = [_strip_tags(d) for d in definisjoner if len(_strip_tags(d)) > 10]
-        if kandidater:
-            # Velg korteste meningsbærende definisjon (maks 200 tegn)
-            kandidater.sort(key=len)
-            resultat["definisjon"] = kandidater[0][:200]
+    # Strategi 1: class="bedeutning" – toppnivå-definisjoner
+    blokker = re.findall(r'<div class="bedeutning">(.*?)</div>', html, re.DOTALL)
+    if not blokker:
+        # Alternativt klassenavn (observert på noen sider)
+        blokker = re.findall(r'<div class="betydning">(.*?)</div>', html, re.DOTALL)
 
-    # Strategi 2: finn JSON-data med "definition" fra Sanity-backend
-    if not resultat["definisjon"]:
-        json_match = re.search(
-            r'"definition"\s*:\s*\[(.*?)\]',
-            html,
-            re.DOTALL,
+    for b in blokker:
+        ren = _ren_tekst(b)
+        # Behold bare toppnivå: "1 tekst" eller "2 tekst" – ikke "1.1", "2.3.1"
+        m = re.match(r"^(\d+)(?!\.\d)\s+(.+)", ren)
+        if m:
+            ren = m.group(2).strip()
+        else:
+            # Underpunkt – hopp over
+            if re.match(r"^\d+\.\d", ren):
+                continue
+            ren = re.sub(r"^\d+\s+", "", ren).strip()
+        if not _valider_definisjon(ren):
+            continue
+        # Klipp ved første komma for lange definisjoner
+        if "," in ren and len(ren) > 50:
+            kort = ren.split(",")[0].strip()
+            if len(kort) >= 15:
+                ren = kort
+        resultat["definisjon"] = ren[:150]
+        return resultat
+
+    # Strategi 2: class="shortform" – kompakt oppsummering
+    blokker = re.findall(r'<div[^>]*class="shortform"[^>]*>(.*?)</div>', html, re.DOTALL)
+    for b in blokker:
+        ren = _ren_tekst(b)
+        ren = re.sub(
+            r"^(adjektiv|substantiv|verb|adverb|preposisjon|konjunksjon|pronomen|interjeksjon)\s+",
+            "",
+            ren,
+            flags=re.IGNORECASE,
         )
-        if json_match:
-            tekst = _strip_tags(json_match.group(1))
-            if 10 < len(tekst) < 300:
-                resultat["definisjon"] = tekst[:200]
-
-    # Strategi 3: hent første avsnitt med meningsinnhold
-    if not resultat["definisjon"]:
-        # NAOB legger definisjon i <p> med data-block-key eller lignende
-        p_tekster = re.findall(r"<p[^>]*>(.*?)</p>", html, re.DOTALL)
-        for p in p_tekster:
-            ren = _strip_tags(p)
-            # Filtrer ut navigasjon, copyright o.l.
-            if len(ren) > 20 and not any(
-                ord_ in ren.lower()
-                for ord_ in ["copyright", "cookie", "naob.no", "javascript"]
-            ):
-                resultat["definisjon"] = ren[:200]
-                break
+        if not _valider_definisjon(ren):
+            continue
+        if "," in ren and len(ren) > 50:
+            kort = ren.split(",")[0].strip()
+            if len(kort) >= 15:
+                ren = kort
+        resultat["definisjon"] = ren[:150]
+        return resultat
 
     return resultat
 
