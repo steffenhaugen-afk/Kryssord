@@ -705,25 +705,56 @@ def hent_ord_fra_db(
     ordklasser   = cfg["ordklasser"]
     placeholders = ",".join(["%s"] * len(ordklasser))
 
-    # Vanlige ord (3+ bokstaver, ingen sammensatte)
+    # Vanlige ord (3+ bokstaver, ingen sammensatte, med gyldig ledetråd)
     sql_vanlg = f"""
-        SELECT tekst FROM ord
+        SELECT tekst FROM ord o
         WHERE bokstavlengde BETWEEN %s AND %s
           AND ordklasse IN ({placeholders})
           AND har_bindestrek = false
           AND har_mellomrom  = false
           AND tekst ~ '^[a-zæøå]+$'
+          AND (
+            EXISTS (
+              SELECT 1 FROM kryssord_ledetrad_par klp
+              WHERE UPPER(klp.svar) = UPPER(o.tekst)
+            )
+            OR EXISTS (
+              SELECT 1 FROM synonymer s
+              WHERE s.ord_id = o.id AND s.relasjon_type = 'synonym'
+            )
+            OR EXISTS (
+              SELECT 1 FROM ord_kategorier ok
+              JOIN kategorier k ON k.id = ok.kategori_id
+              WHERE ok.ord_id = o.id
+                AND k.navn IN (
+                  'Norske politikere', 'Norske kommuner og byer',
+                  'Norske fjell', 'Norske kunstnere og musikere',
+                  'Norske fornavn', 'Norske etternavn',
+                  'Europeiske land', 'Verdens land', 'Verdens byer'
+                )
+            )
+          )
         ORDER BY random()
         LIMIT %s
     """
 
-    # Korte ord (2 bokstaver) – begrenset antall per brett
+    # Korte ord (2 bokstaver) – begrenset antall per brett, med gyldig ledetråd
     sql_korte = """
-        SELECT tekst FROM ord
+        SELECT tekst FROM ord o
         WHERE kort_ord = true
           AND har_bindestrek = false
           AND har_mellomrom  = false
           AND tekst ~ '^[a-zæøå]+$'
+          AND (
+            EXISTS (
+              SELECT 1 FROM kryssord_ledetrad_par klp
+              WHERE UPPER(klp.svar) = UPPER(o.tekst)
+            )
+            OR EXISTS (
+              SELECT 1 FROM synonymer s
+              WHERE s.ord_id = o.id AND s.relasjon_type = 'synonym'
+            )
+          )
         ORDER BY random()
         LIMIT %s
     """

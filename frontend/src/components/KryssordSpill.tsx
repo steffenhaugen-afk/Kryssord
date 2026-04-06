@@ -4,7 +4,6 @@ import { useCallback, useState } from "react";
 import type { Kryssord } from "@/types/kryssord";
 import type { Retning } from "./KryssordGrid";
 import KryssordGrid from "./KryssordGrid";
-import Ledetrad from "./Ledetrad";
 import Timer from "./Timer";
 
 interface KryssordSpillProps {
@@ -17,11 +16,6 @@ export default function KryssordSpill({ kryssord }: KryssordSpillProps) {
   const [timerKjorer, setTimerKjorer] = useState(true);
 
   const handleOrdValgt = useCallback((nr: number, retning: Retning) => {
-    setValgtNr(nr);
-    setValgtRetning(retning);
-  }, []);
-
-  const handleLedetradKlikk = useCallback((nr: number, retning: Retning) => {
     setValgtNr(nr);
     setValgtRetning(retning);
   }, []);
@@ -62,24 +56,14 @@ export default function KryssordSpill({ kryssord }: KryssordSpillProps) {
         </div>
       </div>
 
-      {/* Grid + ledetråder */}
-      <div className="flex flex-col lg:flex-row gap-8 items-start">
-        <KryssordGrid
-          grid_json={kryssord.grid_json}
-          ledetrad_json={kryssord.ledetrad_json}
-          onOrdValgt={handleOrdValgt}
-          valgtNr={valgtNr}
-          valgtRetningEksternt={valgtRetning}
-        />
-        <div className="flex-1 min-w-0">
-          <Ledetrad
-            ledetrad_json={kryssord.ledetrad_json}
-            valgtNr={valgtNr}
-            valgtRetning={valgtRetning}
-            onVelg={handleLedetradKlikk}
-          />
-        </div>
-      </div>
+      {/* Grid */}
+      <KryssordGrid
+        grid_json={kryssord.grid_json}
+        ledetrad_json={kryssord.ledetrad_json}
+        onOrdValgt={handleOrdValgt}
+        valgtNr={valgtNr}
+        valgtRetningEksternt={valgtRetning}
+      />
     </div>
   );
 }

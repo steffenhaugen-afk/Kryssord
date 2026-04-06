@@ -4,11 +4,12 @@ LedetradGenerator – genererer kontekstuelle ledetråder for hvert ord i et kry
 Prioriteringsrekkefølge
 -----------------------
   1. kryssordkongen – hentet ledetråd fra kryssord_ledetrad_par
-  2. NAOB-definisjon – fra ord.definisjon
-  3. NorWordNet-synonym (kilde='norwordnet')
-  4. Synonym fra DB (ordbokapi o.l.)
-  5. Kategori-basert mal, f.eks. "Norsk fjell (8 bokstaver)"
-  6. Ordklasse-fallback, f.eks. "Substantiv (5 bokstaver)"
+  2. NorWordNet-synonym (kilde='norwordnet')
+  3. Synonym fra DB (ordbokapi o.l.)
+  4. Kategori-basert mal, f.eks. "Norsk fjell (8 bokstaver)"
+
+Merk: NAOB brukes kun som kilde for løsningsord i ordbanken (ord.definisjon),
+ikke som ledetråd-kilde.
 """
 from __future__ import annotations
 
@@ -35,13 +36,6 @@ _KATEGORI_MAL: dict[str, str] = {
     "Verdens byer":                 "Verdensby",
 }
 
-_ORDKLASSE_MAL: dict[str, str] = {
-    "substantiv": "Substantiv",
-    "verb":       "Verb",
-    "adjektiv":   "Adjektiv",
-    "egennavn":   "Egennavn",
-}
-
 
 # ---------------------------------------------------------------------------
 # Dataklasser
@@ -64,25 +58,23 @@ def _hent_ord_info(
     tekst_liste: list[str],
 ) -> dict[str, dict]:
     """
-    Henter ordklasse, definisjon, synonymer, kryssordkongen-ledetråder og
-    kategorier for en liste med ord.
-    Returnerer {tekst: {ordklasse, definisjon, kryssord_ledetrad,
-                        synonymer_nw, synonymer, kategorier}}.
+    Henter ordklasse, synonymer, kryssordkongen-ledetråder og kategorier
+    for en liste med ord.
+    Returnerer {tekst: {ordklasse, kryssord_ledetrad, synonymer_nw, synonymer, kategorier}}.
     """
     if not tekst_liste:
         return {}
 
     placeholders = ",".join(["%s"] * len(tekst_liste))
 
-    # Ordklasse + NAOB-definisjon
+    # Ordklasse (NAOB-definisjon brukes ikke som ledetråd-kilde)
     cur.execute(
-        f"SELECT tekst, ordklasse, definisjon FROM ord WHERE tekst IN ({placeholders})",
+        f"SELECT tekst, ordklasse FROM ord WHERE tekst IN ({placeholders})",
         tekst_liste,
     )
     ord_info: dict[str, dict] = {
         row[0]: {
             "ordklasse":         row[1],
-            "definisjon":        row[2],
             "kryssord_ledetrad": [],
             "synonymer_nw":      [],   # NorWordNet-synonymer
             "synonymer":         [],   # andre synonymer (ordbokapi o.l.)
@@ -206,7 +198,6 @@ def lag_ledetrad(
     ordklasse:         str | None,
     synonymer:         list[str],
     kategorier:        list[str],
-    definisjon:        str | None       = None,
     kryssord_ledetrad: list[str]        = (),
     synonymer_nw:      list[str]        = (),
 ) -> LedetradOppslag:
@@ -215,11 +206,9 @@ def lag_ledetrad(
 
     Prioritet:
       1. kryssordkongen-ledetråd
-      2. NAOB-definisjon
-      3. NorWordNet-synonym
-      4. DB-synonym
-      5. Kategori-mal
-      6. Ordklasse-fallback
+      2. NorWordNet-synonym
+      3. DB-synonym
+      4. Kategori-mal
     """
     alle_syn   = list(synonymer_nw) + list(synonymer)
     lengde_str = _lengde_streng(tekst)
@@ -233,18 +222,7 @@ def lag_ledetrad(
             kilde="kryssordkongen", synonymer=alle_syn, kategorier=kategorier,
         )
 
-    # 2. NAOB-definisjon
-    if definisjon and len(definisjon.strip()) > 5:
-        def_kort = definisjon.strip()
-        if len(def_kort) > 80:
-            def_kort = def_kort[:77] + "…"
-        return LedetradOppslag(
-            tekst=tekst, ordklasse=ordklasse,
-            ledetrad=f"{def_kort.capitalize()} ({lengde_str})",
-            kilde="naob", synonymer=alle_syn, kategorier=kategorier,
-        )
-
-    # 3. NorWordNet-synonym
+    # 2. NorWordNet-synonym
     if synonymer_nw:
         valgt = _velg_synonym(tekst, list(synonymer_nw))
         if valgt:
@@ -254,7 +232,7 @@ def lag_ledetrad(
                 kilde="norwordnet", synonymer=alle_syn, kategorier=kategorier,
             )
 
-    # 4. DB-synonym
+    # 3. DB-synonym
     if synonymer:
         valgt = _velg_synonym(tekst, synonymer)
         if valgt:
@@ -264,7 +242,7 @@ def lag_ledetrad(
                 kilde="synonym", synonymer=alle_syn, kategorier=kategorier,
             )
 
-    # 5. Kategori-mal (egennavn)
+    # 4. Kategori-mal (egennavn)
     if ordklasse == "egennavn" or (not ordklasse and kategorier):
         kat_ledetrad = _kategori_ledetrad(kategorier, tekst)
         if kat_ledetrad:
@@ -273,24 +251,13 @@ def lag_ledetrad(
                 ledetrad=kat_ledetrad,
                 kilde="kategori", synonymer=alle_syn, kategorier=kategorier,
             )
-        return LedetradOppslag(
-            tekst=tekst, ordklasse=ordklasse,
-            ledetrad=f"Egennavn ({lengde_str})",
-            kilde="ordklasse", synonymer=alle_syn, kategorier=kategorier,
-        )
 
-    # 6. Ordklasse-fallback
-    if ordklasse and ordklasse in _ORDKLASSE_MAL:
-        return LedetradOppslag(
-            tekst=tekst, ordklasse=ordklasse,
-            ledetrad=f"{_ORDKLASSE_MAL[ordklasse]} ({lengde_str})",
-            kilde="ordklasse", synonymer=alle_syn, kategorier=kategorier,
-        )
-
+    # Ingen god ledetråd funnet – tom streng
+    log.warning("Ingen ledetråd for '%s' (ordklasse=%s)", tekst, ordklasse)
     return LedetradOppslag(
         tekst=tekst, ordklasse=ordklasse,
-        ledetrad=f"Se opp ({lengde_str})",
-        kilde="fallback", synonymer=alle_syn, kategorier=kategorier,
+        ledetrad="",
+        kilde="mangler", synonymer=alle_syn, kategorier=kategorier,
     )
 
 
@@ -304,11 +271,9 @@ class LedetradGenerator:
 
     Prioriteringsrekkefølge:
       1. Kryssordkongen (kryssord_ledetrad_par)
-      2. NAOB-definisjon (ord.definisjon)
-      3. NorWordNet-synonym (kilde='norwordnet')
-      4. Synonym fra DB (ordbokapi o.l.)
-      5. Kategori-basert mal (egennavn)
-      6. Ordklasse-fallback
+      2. NorWordNet-synonym (kilde='norwordnet')
+      3. Synonym fra DB (ordbokapi o.l.)
+      4. Kategori-basert mal (egennavn)
     """
 
     def __init__(self, database_url: str, ai_generator=None) -> None:
@@ -341,7 +306,6 @@ class LedetradGenerator:
                 resultat = self._velg_ledetrad(
                     tekst             = tekst,
                     ordklasse         = info.get("ordklasse"),
-                    definisjon        = info.get("definisjon"),
                     kryssord_ledetrad = info.get("kryssord_ledetrad", []),
                     synonymer_nw      = info.get("synonymer_nw", []),
                     synonymer         = info.get("synonymer", []),
@@ -370,7 +334,6 @@ class LedetradGenerator:
         self,
         tekst:              str,
         ordklasse:          str | None,
-        definisjon:         str | None,
         kryssord_ledetrad:  list[str],
         synonymer_nw:       list[str],
         synonymer:          list[str],
@@ -379,82 +342,17 @@ class LedetradGenerator:
         """
         Prioritering:
           1. Kryssordkongen-ledetråd (hentet par fra kryssord_ledetrad_par)
-          2. NAOB-definisjon (ord.definisjon)
-          3. NorWordNet-synonym (kilde='norwordnet')
-          4. Synonym fra DB (ordbokapi o.l.)
-          5. Kategori-basert mal (egennavn)
-          6. Ordklasse-fallback / "Se opp"
+          2. NorWordNet-synonym (kilde='norwordnet')
+          3. Synonym fra DB (ordbokapi o.l.)
+          4. Kategori-basert mal (egennavn)
         """
-        alle_syn = synonymer_nw + synonymer
-        lengde_str = _lengde_streng(tekst)
-
-        # 1. Kryssordkongen-ledetråd (liste sortert etter frekvens DESC fra DB-query)
-        if kryssord_ledetrad:
-            ledetrad = kryssord_ledetrad[0]  # høyest frekvens
-            return LedetradOppslag(
-                tekst=tekst, ordklasse=ordklasse,
-                ledetrad=f"{ledetrad.capitalize()} ({lengde_str})",
-                kilde="kryssordkongen", synonymer=alle_syn, kategorier=kategorier,
-            )
-
-        # 2. NAOB-definisjon
-        if definisjon and len(definisjon.strip()) > 5:
-            def_kort = definisjon.strip()
-            if len(def_kort) > 80:
-                def_kort = def_kort[:77] + "…"
-            return LedetradOppslag(
-                tekst=tekst, ordklasse=ordklasse,
-                ledetrad=f"{def_kort.capitalize()} ({lengde_str})",
-                kilde="naob", synonymer=alle_syn, kategorier=kategorier,
-            )
-
-        # 3. NorWordNet-synonym
-        if synonymer_nw:
-            valgt = _velg_synonym(tekst, synonymer_nw)
-            if valgt:
-                return LedetradOppslag(
-                    tekst=tekst, ordklasse=ordklasse,
-                    ledetrad=f"{valgt.capitalize()} ({lengde_str})",
-                    kilde="norwordnet", synonymer=alle_syn, kategorier=kategorier,
-                )
-
-        # 4. Synonym fra DB (ordbokapi o.l.)
-        if synonymer:
-            valgt = _velg_synonym(tekst, synonymer)
-            if valgt:
-                return LedetradOppslag(
-                    tekst=tekst, ordklasse=ordklasse,
-                    ledetrad=f"{valgt.capitalize()} ({lengde_str})",
-                    kilde="synonym", synonymer=alle_syn, kategorier=kategorier,
-                )
-
-        # 5. Kategori-mal (egennavn)
-        if ordklasse == "egennavn" or (not ordklasse and kategorier):
-            kat_ledetrad = _kategori_ledetrad(kategorier, tekst)
-            if kat_ledetrad:
-                return LedetradOppslag(
-                    tekst=tekst, ordklasse=ordklasse,
-                    ledetrad=kat_ledetrad,
-                    kilde="kategori", synonymer=alle_syn, kategorier=kategorier,
-                )
-            return LedetradOppslag(
-                tekst=tekst, ordklasse=ordklasse,
-                ledetrad=f"Egennavn ({lengde_str})",
-                kilde="ordklasse", synonymer=alle_syn, kategorier=kategorier,
-            )
-
-        # 6. Ordklasse-fallback
-        if ordklasse and ordklasse in _ORDKLASSE_MAL:
-            return LedetradOppslag(
-                tekst=tekst, ordklasse=ordklasse,
-                ledetrad=f"{_ORDKLASSE_MAL[ordklasse]} ({lengde_str})",
-                kilde="ordklasse", synonymer=alle_syn, kategorier=kategorier,
-            )
-
-        return LedetradOppslag(
-            tekst=tekst, ordklasse=ordklasse,
-            ledetrad=f"Se opp ({lengde_str})",
-            kilde="fallback", synonymer=alle_syn, kategorier=kategorier,
+        return lag_ledetrad(
+            tekst=tekst,
+            ordklasse=ordklasse,
+            synonymer=synonymer,
+            kategorier=kategorier,
+            kryssord_ledetrad=kryssord_ledetrad,
+            synonymer_nw=synonymer_nw,
         )
 
     def oppdater_kryssord_i_db(self, kryssord_id: str) -> dict:

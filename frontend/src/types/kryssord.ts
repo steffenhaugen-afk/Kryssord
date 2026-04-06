@@ -12,11 +12,11 @@ export interface LedetradOppslag {
   nr: number;
   tekst: string;
   ledetrad: string;
-  // Felter satt av generatoren og ledetrad_generator
-  kol: number;
-  rad: number;
-  lengde: number;
   kilde?: string;
+  // Valgfrie posisjonsfelter – leveres ikke av API, avledet fra grid i frontend
+  kol?: number;
+  rad?: number;
+  lengde?: number;
 }
 
 export interface LedetradJson {
