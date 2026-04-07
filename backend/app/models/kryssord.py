@@ -16,6 +16,7 @@ class Kryssord(Base):
     ledetrad_json     = Column(JSONB, nullable=False, default={})
     opprettet_dato    = Column(TIMESTAMP(timezone=True), server_default=func.now())
     publisert         = Column(Boolean, nullable=False, default=False)
+    godkjent          = Column(Boolean, nullable=False, default=False)
 
     statistikk = relationship("KryssordStatistikk", back_populates="kryssord", uselist=False)
 
