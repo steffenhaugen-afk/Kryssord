@@ -53,23 +53,23 @@ export const adminApi = {
   hentKryssord: (id: string) =>
     adminFetch<Record<string, unknown>>(`/kryssord/${id}`),
 
-  // Generer nytt
+  // Generer nytt – POST til /kryssord (route.ts proxier videre til /generer på backend)
   generer: (body: { storrelse: number; tema: string; tvang_ord: string[] }) =>
-    adminFetch<Record<string, unknown>>("/kryssord/generer", {
+    adminFetch<Record<string, unknown>>("/kryssord", {
       method: "POST",
       body: JSON.stringify(body),
     }),
 
-  // Oppdater status
+  // Oppdater status – PATCH til /kryssord/{id}?action=status
   oppdaterStatus: (id: string, body: { godkjent?: boolean; publisert?: boolean; tittel?: string }) =>
-    adminFetch<{ ok: boolean }>(`/kryssord/${id}/status`, {
+    adminFetch<{ ok: boolean }>(`/kryssord/${id}?action=status`, {
       method: "PATCH",
       body: JSON.stringify(body),
     }),
 
-  // Rediger ledetråd
+  // Rediger ledetråd – PATCH til /kryssord/{id}?action=ledetrad
   oppdaterLedetrad: (id: string, retning: string, nr: string, ledetrad: string) =>
-    adminFetch<{ ok: boolean }>(`/kryssord/${id}/ledetrad`, {
+    adminFetch<{ ok: boolean }>(`/kryssord/${id}?action=ledetrad`, {
       method: "PATCH",
       body: JSON.stringify({ retning, nr, ledetrad }),
     }),
@@ -82,10 +82,10 @@ export const adminApi = {
   sokOrd: (q: string) =>
     adminFetch<{ totalt: number; resultater: OrdResultat[] }>(`/ord?q=${encodeURIComponent(q)}`),
 
-  // Legg til ledetråd manuelt
+  // Legg til ledetråd manuelt – POST til /ord (route.ts tar tekst + ledetrad i body)
   leggTilLedetrad: (tekst: string, ledetrad: string) =>
-    adminFetch<{ ok: boolean }>(`/ord/${encodeURIComponent(tekst)}/ledetrad`, {
+    adminFetch<{ ok: boolean }>("/ord", {
       method: "POST",
-      body: JSON.stringify({ ledetrad }),
+      body: JSON.stringify({ tekst, ledetrad }),
     }),
 };
