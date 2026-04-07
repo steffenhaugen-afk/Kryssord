@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, use } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Kryssord, LedetradOppslag } from "@/types/kryssord";
 import { adminApi } from "@/lib/adminApi";
@@ -23,9 +23,9 @@ interface LedetradRad {
 export default function KryssordDetailPage({
   params,
 }: {
-  params: Promise<{ id: string }>;
+  params: { id: string };
 }) {
-  const { id } = use(params);
+  const { id } = params;
   const router = useRouter();
   const [kryssord, setKryssord] = useState<Kryssord | null>(null);
   const [laster, setLaster] = useState(true);
