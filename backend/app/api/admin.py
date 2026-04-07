@@ -219,11 +219,11 @@ def _hent_tema_ord(database_url: str, kategorier: list[str], min_len: int, max_l
 
 @router.post("/kryssord/generer", response_model=KryssordUt, dependencies=[Depends(_verify)])
 def admin_generer(body: GenererAdminRequest, db: Session = Depends(get_db)) -> KryssordUt:
-    from ...generator.kryssord_generator import (
+    from generator.kryssord_generator import (
         KryssordGenerator, hent_ord_fra_db, lagre_kryssord,
         VANSKELIGHET, GRID_MAKS_ORDLENGDE,
     )
-    from ...generator.ledetrad_generator import LedetradGenerator
+    from generator.ledetrad_generator import LedetradGenerator
 
     vanskelighet = _vanskelighetsgrad(body.storrelse)
     cfg = VANSKELIGHET[vanskelighet]
